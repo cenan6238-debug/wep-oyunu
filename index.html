@@ -3,16 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Wep Oyunu</title>
-    <meta name="theme-color" content="#0d1722" />
+    <title>Zombie City Hunt</title>
+    <meta name="theme-color" content="#070b12" />
     <meta
       name="description"
-      content="Three.js ile gelistirilmis, tarayicidan oynanan hizli 3D refleks oyunu."
+      content="Three.js ile yapilmis, tarayicida oynanan sehirde zombi avlama aksiyon oyunu."
     />
-    <meta property="og:title" content="Wep Oyunu" />
+    <meta property="og:title" content="Zombie City Hunt" />
     <meta
       property="og:description"
-      content="Kureyi yolda tut, coin topla, dash at ve arkadaslarina challenge linki yolla."
+      content="Karanlik sehir sokaklarinda hayatta kal, dalga dalga gelen zombileri indir."
     />
     <meta property="og:type" content="website" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -22,49 +22,48 @@
   <body>
     <div class="hud">
       <div class="hud__top">
+        <div class="panel panel--danger">
+          <span class="label">Can</span>
+          <strong id="health">100</strong>
+        </div>
+        <div class="panel">
+          <span class="label">Mermi</span>
+          <strong id="ammo">12 / 48</strong>
+        </div>
         <div class="panel">
           <span class="label">Skor</span>
           <strong id="score">0</strong>
         </div>
         <div class="panel">
-          <span class="label">En Iyi</span>
-          <strong id="best-score">0</strong>
+          <span class="label">Kill</span>
+          <strong id="kills">0</strong>
         </div>
         <div class="panel">
-          <span class="label">Seviye</span>
-          <strong id="level">1</strong>
+          <span class="label">Dalga</span>
+          <strong id="wave">1</strong>
         </div>
-        <div class="panel">
-          <span class="label">Coin</span>
-          <strong id="coins">0</strong>
-        </div>
-        <div class="panel">
-          <span class="label">Combo</span>
-          <strong id="combo">x1</strong>
-        </div>
-        <div class="panel">
-          <span class="label">Rush</span>
-          <strong id="rush">0%</strong>
+        <div class="panel panel--accent">
+          <span class="label">Ofke</span>
+          <strong id="fury">0%</strong>
         </div>
       </div>
 
       <div class="hud__bottom" id="hud-bottom">
         <div class="card">
-          <p class="title">Wep Oyunu</p>
-          <p id="status">Yolu oku, coin topla, yakın farkları bonusla çevir ve dash zamanını iyi seç.</p>
+          <p class="title">Zombie City Hunt</p>
+          <p id="status">Sokagi temizle, mermiyi bos harcama, zombiler sana ulasmadan indir.</p>
           <p class="hint">
-            Desktop: A/D veya ok tuşları, Shift dash, P duraklat. Mobil: sol-sağ dokun, sağ alttaki dash
-            butonunu kullan.
+            Desktop: A/D veya ok tuslari ile hareket et, Space ile ates et, R ile sarjor degistir, Shift ile ani
+            kacis yap. Mobil: alttaki butonlarla oyna.
           </p>
         </div>
       </div>
 
-      <div class="hud__actions">
-        <button class="hud-button" id="pause-button" type="button">Duraklat</button>
-        <button class="hud-button hud-button--accent" id="dash-button" type="button">
-          Dash
-          <span id="dash-meter">Hazir</span>
-        </button>
+      <div class="controls">
+        <button class="control-button" id="move-left" type="button">Sol</button>
+        <button class="control-button control-button--fire" id="fire-button" type="button">Ates</button>
+        <button class="control-button" id="move-right" type="button">Sag</button>
+        <button class="control-button" id="reload-button" type="button">Reload</button>
       </div>
     </div>
 
@@ -73,45 +72,34 @@
       <div class="overlay__card">
         <div class="overlay__grid">
           <section class="overlay__main">
-            <p class="eyebrow">3D Web Arcade</p>
-            <h1 class="overlay__title">Yolu oku, ritmi yakala, skoru bırakma.</h1>
+            <p class="eyebrow">Undead Survival</p>
+            <h1 class="overlay__title">Sehir dustu. Sokak senin.</h1>
             <p class="overlay__text" id="overlay-text">
-              Coin topla, yakın fark bonusları yakala, dash ile sıkıştığın anı kurtar ve arkadaşına challenge at.
+              Gece boyunca dayan, dalga dalga gelen zombileri avla, fury modunu ac ve kayit tablosunun zirvesine cik.
             </p>
 
-            <div class="challenge-card" id="challenge-card">
-              <p class="challenge-card__label">Bugunun Gorevi</p>
-              <p class="challenge-card__value" id="daily-challenge">Hazirlaniyor...</p>
-              <p class="challenge-card__sub" id="challenge-status">Henüz tamamlanmadı.</p>
+            <div class="mission-card">
+              <p class="mission-card__label">Gecelik Gorev</p>
+              <p class="mission-card__value" id="mission">3. dalgaya kadar hayatta kal ve 20 zombi indir.</p>
+              <p class="mission-card__sub" id="mission-status">Gorev aktif.</p>
             </div>
 
             <label class="field">
-              <span>Kullanici adi</span>
-              <input id="player-name" type="text" maxlength="16" placeholder="Oyuncu" />
+              <span>Avci adi</span>
+              <input id="player-name" type="text" maxlength="16" placeholder="Avci" />
             </label>
 
-            <section class="skin-picker">
-              <div class="skin-picker__header">
-                <h3>Skin Sec</h3>
-                <p>Kostumunu sec, tarzini piste koy.</p>
-              </div>
-              <div class="skin-picker__grid" id="skin-picker"></div>
-            </section>
-
             <div class="overlay__actions">
-              <button class="overlay__button" id="overlay-button" type="button">Oyunu Baslat</button>
-              <button class="overlay__secondary" id="share-button" type="button">Challenge Linki Kopyala</button>
+              <button class="overlay__button" id="overlay-button" type="button">Avi Baslat</button>
             </div>
           </section>
 
           <aside class="leaderboard">
             <div class="leaderboard__header">
-              <h2 id="leaderboard-title">Liderlik</h2>
-              <p id="leaderboard-subtitle">Skor tablosu yukleniyor...</p>
+              <h2>Avci Kayitlari</h2>
+              <p>Bu cihazdaki en iyi hayatta kalanlar</p>
             </div>
             <ol id="leaderboard-list"></ol>
-            <div class="leaderboard__notice" id="leaderboard-notice"></div>
-            <div class="leaderboard__challenge" id="shared-challenge"></div>
           </aside>
         </div>
       </div>
