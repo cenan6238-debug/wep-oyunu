@@ -42,6 +42,10 @@
           <span class="label">Combo</span>
           <strong id="combo">x1</strong>
         </div>
+        <div class="panel">
+          <span class="label">Rush</span>
+          <strong id="rush">0%</strong>
+        </div>
       </div>
 
       <div class="hud__bottom" id="hud-bottom">
@@ -86,6 +90,14 @@
               <input id="player-name" type="text" maxlength="16" placeholder="Oyuncu" />
             </label>
 
+            <section class="skin-picker">
+              <div class="skin-picker__header">
+                <h3>Skin Sec</h3>
+                <p>Kostumunu sec, tarzini piste koy.</p>
+              </div>
+              <div class="skin-picker__grid" id="skin-picker"></div>
+            </section>
+
             <div class="overlay__actions">
               <button class="overlay__button" id="overlay-button" type="button">Oyunu Baslat</button>
               <button class="overlay__secondary" id="share-button" type="button">Challenge Linki Kopyala</button>
@@ -94,10 +106,11 @@
 
           <aside class="leaderboard">
             <div class="leaderboard__header">
-              <h2>Yerel Liderlik</h2>
-              <p>Bu cihazdaki en iyi skorlar</p>
+              <h2 id="leaderboard-title">Liderlik</h2>
+              <p id="leaderboard-subtitle">Skor tablosu yukleniyor...</p>
             </div>
             <ol id="leaderboard-list"></ol>
+            <div class="leaderboard__notice" id="leaderboard-notice"></div>
             <div class="leaderboard__challenge" id="shared-challenge"></div>
           </aside>
         </div>

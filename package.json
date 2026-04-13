@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite",
     "dev:host": "vite --host",
+    "generate:assets": "node scripts/generate-assets.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.49.8",
     "three": "^0.176.0"
   },
   "devDependencies": {

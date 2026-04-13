@@ -5,11 +5,19 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 
+import { MODEL_URLS, SKINS, cloneModelSync, preloadModels, tintModel } from "./assets.js";
+import {
+  fetchOnlineLeaderboard,
+  getLeaderboardConfig,
+  submitOnlineScore,
+} from "./leaderboard.js";
+
 const STORAGE_KEYS = {
   bestScore: "wep-best-score",
   leaderboard: "wep-local-leaderboard",
   playerName: "wep-player-name",
   challengeDate: "wep-daily-challenge-date",
+  selectedSkin: "wep-selected-skin",
 };
 
 const canvas = document.querySelector("#scene");
@@ -18,6 +26,7 @@ const bestScoreElement = document.querySelector("#best-score");
 const levelElement = document.querySelector("#level");
 const coinsElement = document.querySelector("#coins");
 const comboElement = document.querySelector("#combo");
+const rushElement = document.querySelector("#rush");
 const statusElement = document.querySelector("#status");
 const hudBottomElement = document.querySelector("#hud-bottom");
 const overlayElement = document.querySelector("#overlay");
@@ -29,14 +38,18 @@ const dashButtonElement = document.querySelector("#dash-button");
 const dashMeterElement = document.querySelector("#dash-meter");
 const playerNameElement = document.querySelector("#player-name");
 const leaderboardListElement = document.querySelector("#leaderboard-list");
+const leaderboardTitleElement = document.querySelector("#leaderboard-title");
+const leaderboardSubtitleElement = document.querySelector("#leaderboard-subtitle");
+const leaderboardNoticeElement = document.querySelector("#leaderboard-notice");
 const dailyChallengeElement = document.querySelector("#daily-challenge");
 const challengeStatusElement = document.querySelector("#challenge-status");
 const sharedChallengeElement = document.querySelector("#shared-challenge");
+const skinPickerElement = document.querySelector("#skin-picker");
 
 const lanePositions = [-4.4, 0, 4.4];
 const segmentLength = 18;
 const rowSpacing = 16;
-
+const leaderboardConfig = getLeaderboardConfig();
 const sharedChallenge = readSharedChallenge();
 const dailyChallenge = createDailyChallenge();
 
@@ -60,21 +73,26 @@ const gameState = {
   dashActive: false,
   dashTimer: 0,
   invulnerableTimer: 0,
+  rushCharge: 0,
+  rushActive: false,
+  rushTimer: 0,
   lastRun: null,
   playerName: sanitizePlayerName(localStorage.getItem(STORAGE_KEYS.playerName) || "Oyuncu"),
-  leaderboard: loadLeaderboard(),
+  selectedSkinId:
+    SKINS.find((skin) => skin.id === localStorage.getItem(STORAGE_KEYS.selectedSkin))?.id ||
+    SKINS[0].id,
+  leaderboard: loadLocalLeaderboard(),
+  onlineLeaderboard: [],
+  leaderboardMode: leaderboardConfig.enabled ? "online" : "local",
+  leaderboardError: null,
   dailyChallenge,
   sharedChallenge,
   dailyChallengeCompleted:
     localStorage.getItem(STORAGE_KEYS.challengeDate) === dailyChallenge.key,
+  assetsReady: false,
 };
 
 playerNameElement.value = gameState.playerName;
-scoreElement.textContent = "0";
-bestScoreElement.textContent = formatScore(gameState.bestScore);
-levelElement.textContent = "1";
-coinsElement.textContent = "0";
-comboElement.textContent = "x1";
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color("#d7e7f4");
@@ -99,14 +117,14 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.06;
+renderer.toneMappingExposure = 1.08;
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 composer.addPass(
   new UnrealBloomPass(
     new THREE.Vector2(window.innerWidth, window.innerHeight),
-    0.18,
+    0.22,
     0.25,
     0.92,
   ),
@@ -127,7 +145,7 @@ sunLight.shadow.camera.near = 1;
 sunLight.shadow.camera.far = 120;
 scene.add(sunLight);
 
-const bounceLight = new THREE.DirectionalLight("#c9ddf2", 0.7);
+const bounceLight = new THREE.DirectionalLight("#c9ddf2", 0.72);
 bounceLight.position.set(-12, 10, -18);
 scene.add(bounceLight);
 
@@ -213,12 +231,6 @@ buildHorizon();
 const decorGroup = new THREE.Group();
 scene.add(decorGroup);
 
-for (let index = 0; index < 38; index += 1) {
-  const prop = createRoadsideProp(index);
-  resetRoadsideProp(prop, index * -12 - 18);
-  decorGroup.add(prop);
-}
-
 const cloudGroup = new THREE.Group();
 scene.add(cloudGroup);
 for (let index = 0; index < 8; index += 1) {
@@ -234,36 +246,11 @@ for (let index = 0; index < 8; index += 1) {
 const player = new THREE.Group();
 scene.add(player);
 
-const playerBodyMaterial = new THREE.MeshPhysicalMaterial({
-  color: "#ef6c32",
-  emissive: "#ff9d52",
-  emissiveIntensity: 0.15,
-  roughness: 0.34,
-  metalness: 0.03,
-  clearcoat: 0.85,
-  clearcoatRoughness: 0.18,
-});
-
-const playerBody = new THREE.Mesh(
-  new THREE.SphereGeometry(1.08, 40, 40),
-  playerBodyMaterial,
-);
-playerBody.castShadow = true;
-playerBody.receiveShadow = true;
-player.add(playerBody);
-
-const playerStripe = new THREE.Mesh(
-  new THREE.TorusGeometry(0.74, 0.08, 16, 48),
-  new THREE.MeshStandardMaterial({
-    color: "#fff6e8",
-    roughness: 0.6,
-  }),
-);
-playerStripe.rotation.x = Math.PI * 0.5;
-player.add(playerStripe);
+const playerVisualGroup = new THREE.Group();
+player.add(playerVisualGroup);
 
 const playerCore = new THREE.Mesh(
-  new THREE.SphereGeometry(0.26, 18, 18),
+  new THREE.SphereGeometry(0.24, 18, 18),
   new THREE.MeshStandardMaterial({
     color: "#ffe3b2",
     emissive: "#ffc46b",
@@ -272,7 +259,6 @@ const playerCore = new THREE.Mesh(
   }),
 );
 player.add(playerCore);
-
 player.position.set(lanePositions[1], 1.18, 6.5);
 
 const obstacleRows = [];
@@ -282,7 +268,6 @@ for (let index = 0; index < 10; index += 1) {
   row.userData.blocks = [];
   obstacleRows.push(row);
   scene.add(row);
-  refreshRow(row);
 }
 
 const coinRows = [];
@@ -292,11 +277,10 @@ for (let index = 0; index < 8; index += 1) {
   row.userData.coins = [];
   coinRows.push(row);
   scene.add(row);
-  refreshCoinRow(row);
 }
 
-const clock = new THREE.Clock();
 let audioContext = null;
+const clock = new THREE.Clock();
 
 window.addEventListener("keydown", onKeyDown);
 window.addEventListener("resize", onResize);
@@ -308,10 +292,15 @@ dashButtonElement.addEventListener("click", triggerDash);
 playerNameElement.addEventListener("input", onPlayerNameInput);
 
 registerServiceWorker();
-renderLeaderboard();
+renderSkinPicker();
 updateChallengeCopy();
+refreshPlayerVisual();
+rebuildSceneObjects();
+refreshLeaderboard();
 setOverlayContent("intro");
 updateHudState();
+syncHud();
+preloadGameAssets();
 animate();
 
 function animate() {
@@ -328,11 +317,66 @@ function animate() {
   composer.render();
 }
 
-function updateGame(delta, elapsed) {
-  const travelSpeed = gameState.speed + (gameState.dashActive ? 12 : 0);
+async function preloadGameAssets() {
+  const urls = [
+    ...SKINS.map((skin) => skin.modelUrl),
+    MODEL_URLS.obstacleCar,
+    MODEL_URLS.obstacleTruck,
+    MODEL_URLS.obstacleRoadblock,
+    MODEL_URLS.propTree,
+    MODEL_URLS.propBillboard,
+  ];
 
-  gameState.speed = Math.min(34, gameState.speed + delta * 0.22);
-  gameState.distance += travelSpeed * delta;
+  try {
+    await preloadModels(urls);
+    gameState.assetsReady = true;
+    rebuildSceneObjects();
+    refreshPlayerVisual();
+    pushStatus("Gercek 3D asset paketi yüklendi.");
+  } catch {
+    pushStatus("Asset paketi kismen yuklenemedi, yedek modeller kullaniliyor.");
+  }
+}
+
+async function refreshLeaderboard() {
+  if (!leaderboardConfig.enabled) {
+    leaderboardTitleElement.textContent = "Yerel Liderlik";
+    leaderboardSubtitleElement.textContent = "Online tablo icin Supabase env ekle.";
+    leaderboardNoticeElement.textContent =
+      "VITE_SUPABASE_URL ve VITE_SUPABASE_ANON_KEY tanimlanirsa global skor tablosu acilir.";
+    renderLeaderboardList(gameState.leaderboard, "local");
+    return;
+  }
+
+  leaderboardTitleElement.textContent = "Online Liderlik";
+  leaderboardSubtitleElement.textContent = "Global skor tablosu";
+  leaderboardNoticeElement.textContent = "Skorlar yukleniyor...";
+
+  const result = await fetchOnlineLeaderboard(8);
+  if (result.error) {
+    gameState.leaderboardMode = "local";
+    gameState.leaderboardError = result.error.message;
+    leaderboardTitleElement.textContent = "Yerel Liderlik";
+    leaderboardSubtitleElement.textContent = "Online tabloya gecilemedi";
+    leaderboardNoticeElement.textContent =
+      "Supabase tablo politikalarini kontrol et. Bu arada yerel skorlar gosteriliyor.";
+    renderLeaderboardList(gameState.leaderboard, "local");
+    return;
+  }
+
+  gameState.onlineLeaderboard = result.data;
+  gameState.leaderboardMode = "online";
+  gameState.leaderboardError = null;
+  leaderboardNoticeElement.textContent =
+    "Global skorlar yayinda. Kendi skoru buraya cikarmaya calis.";
+  renderLeaderboardList(gameState.onlineLeaderboard, "online");
+}
+
+function updateGame(delta, elapsed) {
+  const baseSpeed = gameState.speed + (gameState.dashActive ? 12 : 0) + (gameState.rushActive ? 6 : 0);
+
+  gameState.speed = Math.min(36, gameState.speed + delta * 0.22);
+  gameState.distance += baseSpeed * delta;
   gameState.level = 1 + Math.floor(gameState.distance / 90);
 
   if (gameState.comboTimer > 0) {
@@ -342,30 +386,48 @@ function updateGame(delta, elapsed) {
     }
   }
 
-  gameState.dashCharge = Math.min(1, gameState.dashCharge + delta * 0.16);
+  gameState.dashCharge = Math.min(1, gameState.dashCharge + delta * (gameState.rushActive ? 0.24 : 0.16));
 
   if (gameState.dashActive) {
     gameState.dashTimer -= delta;
     gameState.invulnerableTimer = Math.max(0, gameState.invulnerableTimer - delta);
     if (gameState.dashTimer <= 0) {
       gameState.dashActive = false;
-      playerBodyMaterial.emissiveIntensity = 0.15;
+      applyPlayerFx(0.18);
     }
   } else if (gameState.invulnerableTimer > 0) {
     gameState.invulnerableTimer = Math.max(0, gameState.invulnerableTimer - delta);
   }
 
+  gameState.rushCharge = Math.min(1, gameState.rushCharge + delta * 0.05 + Math.max(0, gameState.combo - 1) * 0.005);
+
+  if (!gameState.rushActive && gameState.rushCharge >= 1 && gameState.combo >= 5) {
+    activateRushMode();
+  }
+
+  if (gameState.rushActive) {
+    gameState.rushTimer -= delta;
+    if (gameState.rushTimer <= 0) {
+      gameState.rushActive = false;
+      gameState.rushCharge = 0;
+      applyPlayerFx(gameState.dashActive ? 0.65 : 0.18);
+      pushStatus("Rush bitti. Tempoyu koru.");
+    }
+  }
+
+  const rushMultiplier = gameState.rushActive ? 1.45 : 1;
   gameState.score = Math.floor(
-    gameState.distance * 3.8 +
+    (gameState.distance * 3.8 +
       gameState.coins * 55 +
       gameState.nearMisses * 35 +
-      (gameState.combo - 1) * 22,
+      (gameState.combo - 1) * 22) *
+      rushMultiplier,
   );
 
-  updateRoad(delta, travelSpeed);
-  updateDecor(delta, travelSpeed);
-  updateObstacleRows(delta, travelSpeed);
-  updateCoinRows(delta, travelSpeed, elapsed);
+  updateRoad(delta, baseSpeed);
+  updateDecor(delta, baseSpeed);
+  updateObstacleRows(delta, baseSpeed, elapsed);
+  updateCoinRows(delta, baseSpeed, elapsed);
   updateClouds(delta);
   updatePlayerAndCamera(delta, elapsed);
   maybeCompleteDailyChallenge();
@@ -374,18 +436,31 @@ function updateGame(delta, elapsed) {
 
 function updateIdleAnimations(delta, elapsed) {
   player.position.y = 1.18 + Math.sin(elapsed * 5.1) * 0.1;
-  player.rotation.x += delta * (gameState.running && !gameState.paused ? 2.7 : 1.0);
+  player.rotation.x += delta * (gameState.running && !gameState.paused ? 2.7 : 1);
 
   if (!gameState.running || gameState.paused) {
     updateClouds(delta * 0.35);
   }
 
-  const targetFov = gameState.dashActive ? 67 : 58;
+  const targetFov = gameState.dashActive ? 67 : gameState.rushActive ? 64 : 58;
   camera.fov = THREE.MathUtils.damp(camera.fov, targetFov, 8, delta);
   camera.updateProjectionMatrix();
+
+  sunLight.intensity = THREE.MathUtils.damp(
+    sunLight.intensity,
+    gameState.rushActive ? 2.9 : 2.2,
+    3,
+    delta,
+  );
+  composer.passes[1].strength = THREE.MathUtils.damp(
+    composer.passes[1].strength,
+    gameState.rushActive ? 0.45 : 0.22,
+    4,
+    delta,
+  );
 }
 
-function updatePlayerAndCamera(delta) {
+function updatePlayerAndCamera(delta, elapsed) {
   gameState.currentLane = THREE.MathUtils.damp(
     gameState.currentLane,
     gameState.targetLane,
@@ -407,18 +482,9 @@ function updatePlayerAndCamera(delta) {
     delta,
   );
 
-  camera.position.x = THREE.MathUtils.damp(
-    camera.position.x,
-    player.position.x * 0.38,
-    4,
-    delta,
-  );
-  camera.position.y = THREE.MathUtils.damp(
-    camera.position.y,
-    8.1 + Math.abs(player.position.x) * 0.05,
-    4,
-    delta,
-  );
+  const shake = gameState.rushActive ? Math.sin(elapsed * 18) * 0.08 : 0;
+  camera.position.x = THREE.MathUtils.damp(camera.position.x, player.position.x * 0.38 + shake, 5, delta);
+  camera.position.y = THREE.MathUtils.damp(camera.position.y, 8.1 + Math.abs(player.position.x) * 0.05, 4, delta);
   camera.lookAt(player.position.x * 0.16, 1.25, -12);
 }
 
@@ -427,7 +493,6 @@ function updateRoad(delta, travelSpeed) {
 
   for (const segment of roadSegments) {
     segment.position.z += travelSpeed * delta;
-
     if (segment.position.z > segmentLength) {
       segment.position.z = furthestZ - segmentLength;
     }
@@ -437,14 +502,13 @@ function updateRoad(delta, travelSpeed) {
 function updateDecor(delta, travelSpeed) {
   for (const prop of decorGroup.children) {
     prop.position.z += travelSpeed * delta * 0.82;
-
     if (prop.position.z > 28) {
       resetRoadsideProp(prop, -190 - Math.random() * 40);
     }
   }
 }
 
-function updateObstacleRows(delta, travelSpeed) {
+function updateObstacleRows(delta, travelSpeed, elapsed) {
   let furthestZ = Infinity;
 
   for (const row of obstacleRows) {
@@ -466,17 +530,25 @@ function updateObstacleRows(delta, travelSpeed) {
       maybeAwardNearMiss(row);
     }
 
-    if (Math.abs(row.position.z - player.position.z) < 1.75) {
+    for (const block of row.userData.blocks) {
+      if (block.userData.swayAmplitude) {
+        block.position.x =
+          block.userData.baseX +
+          Math.sin(elapsed * block.userData.swaySpeed + block.userData.swaySeed) * block.userData.swayAmplitude;
+      }
+    }
+
+    if (Math.abs(row.position.z - player.position.z) < 1.8) {
       for (const block of row.userData.blocks) {
-        if (!block.visible) {
+        if (block.visible === false) {
           continue;
         }
 
-        if (Math.abs(block.position.x - player.position.x) < 1.5) {
+        if (Math.abs(block.position.x - player.position.x) < 1.52) {
           if (gameState.invulnerableTimer > 0) {
             block.visible = false;
             playSound("shield");
-            pushStatus("Dash ile tehlikeyi delip gectin.");
+            pushStatus("Dash ile trafik arasindan yarildin.");
           } else {
             triggerGameOver();
           }
@@ -517,7 +589,7 @@ function updateCoinRows(delta, travelSpeed, elapsed) {
         Math.abs(coin.position.x - player.position.x) < 1.25
       ) {
         coin.visible = false;
-        gameState.coins += 1;
+        gameState.coins += gameState.rushActive ? 2 : 1;
         bumpCombo();
         playSound("coin");
         pushStatus(`Coin topladin. Combo ${gameState.combo}x.`);
@@ -529,8 +601,7 @@ function updateCoinRows(delta, travelSpeed, elapsed) {
 function updateClouds(delta) {
   for (const cloud of cloudGroup.children) {
     cloud.position.z += delta * 1.3;
-    cloud.position.x +=
-      Math.sin(clock.elapsedTime * 0.12 + cloud.userData.offset) * delta * 0.18;
+    cloud.position.x += Math.sin(clock.elapsedTime * 0.12 + cloud.userData.offset) * delta * 0.18;
 
     if (cloud.position.z > 24) {
       cloud.position.z = -220 - Math.random() * 30;
@@ -540,13 +611,19 @@ function updateClouds(delta) {
   }
 }
 
+function activateRushMode() {
+  gameState.rushActive = true;
+  gameState.rushTimer = 6;
+  gameState.rushCharge = 1;
+  applyPlayerFx(gameState.dashActive ? 1.1 : 0.8);
+  playSound("rush");
+  pushStatus("Rush aktif. Hızlandın, skor katsayısı yükseldi.");
+}
+
 function buildRoadSegment(index) {
   const segment = new THREE.Group();
 
-  const road = new THREE.Mesh(
-    new THREE.BoxGeometry(14.4, 0.55, segmentLength),
-    roadMaterial,
-  );
+  const road = new THREE.Mesh(new THREE.BoxGeometry(14.4, 0.55, segmentLength), roadMaterial);
   road.position.y = -0.28;
   road.receiveShadow = true;
   segment.add(road);
@@ -594,10 +671,7 @@ function buildRoadSegment(index) {
 }
 
 function buildLineMark() {
-  const line = new THREE.Mesh(
-    new THREE.BoxGeometry(0.16, 0.03, segmentLength),
-    paintMaterial,
-  );
+  const line = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.03, segmentLength), paintMaterial);
   line.position.y = 0.02;
   return line;
 }
@@ -606,10 +680,7 @@ function buildLaneDashRow(x) {
   const group = new THREE.Group();
 
   for (let index = 0; index < 4; index += 1) {
-    const dash = new THREE.Mesh(
-      new THREE.BoxGeometry(0.22, 0.03, 2.4),
-      paintMaterial,
-    );
+    const dash = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.03, 2.4), paintMaterial);
     dash.position.set(x, 0.03, -6.8 + index * 4.6);
     group.add(dash);
   }
@@ -619,13 +690,9 @@ function buildLaneDashRow(x) {
 
 function buildRail(x) {
   const group = new THREE.Group();
-  const postPositions = [-7, -2.5, 2, 6.5];
 
-  for (const z of postPositions) {
-    const post = new THREE.Mesh(
-      new THREE.BoxGeometry(0.16, 0.7, 0.16),
-      railMaterial,
-    );
+  for (const z of [-7, -2.5, 2, 6.5]) {
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.7, 0.16), railMaterial);
     post.position.set(x, 0.35, z);
     post.castShadow = true;
     post.receiveShadow = true;
@@ -640,7 +707,6 @@ function buildRail(x) {
   beam.castShadow = true;
   beam.receiveShadow = true;
   group.add(beam);
-
   return group;
 }
 
@@ -674,21 +740,35 @@ function buildHorizon() {
       }),
     );
     const side = index % 2 === 0 ? -1 : 1;
-    building.position.set(
-      side * (30 + Math.random() * 18),
-      height * 0.5 - 0.5,
-      -110 - Math.random() * 18,
-    );
+    building.position.set(side * (30 + Math.random() * 18), height * 0.5 - 0.5, -110 - Math.random() * 18);
     building.receiveShadow = true;
     horizonGroup.add(building);
   }
+}
+
+function rebuildSceneObjects() {
+  decorGroup.clear();
+
+  for (let index = 0; index < 42; index += 1) {
+    const prop = createRoadsideProp(index);
+    resetRoadsideProp(prop, index * -12 - 18);
+    decorGroup.add(prop);
+  }
+
+  obstacleRows.forEach((row) => refreshRow(row));
+  coinRows.forEach((row) => refreshCoinRow(row));
 }
 
 function createRoadsideProp(seed) {
   const typeRoll = Math.random();
 
   if (typeRoll < 0.45) {
-    return createTree(seed);
+    const treeAsset = cloneModelSync(MODEL_URLS.propTree);
+    if (treeAsset) {
+      treeAsset.scale.setScalar(0.95 + Math.random() * 0.18);
+      return treeAsset;
+    }
+    return createFallbackTree(seed);
   }
 
   if (typeRoll < 0.72) {
@@ -699,66 +779,24 @@ function createRoadsideProp(seed) {
     return createHouse();
   }
 
-  return createBillboard();
-}
-
-function createTree(seed) {
-  const group = new THREE.Group();
-
-  const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.24, 0.34, 2.2, 10),
-    new THREE.MeshStandardMaterial({
-      color: "#7b5d3f",
-      roughness: 1,
-    }),
-  );
-  trunk.position.y = 1.1;
-  trunk.castShadow = true;
-  group.add(trunk);
-
-  const foliageMaterial = new THREE.MeshStandardMaterial({
-    color: seed % 2 === 0 ? "#547a38" : "#5f8642",
-    roughness: 1,
-  });
-
-  for (const offset of [
-    [0, 3.1, 0],
-    [0.9, 2.8, 0.2],
-    [-0.9, 2.7, -0.1],
-  ]) {
-    const foliage = new THREE.Mesh(
-      new THREE.SphereGeometry(1.2 + Math.random() * 0.3, 16, 16),
-      foliageMaterial,
-    );
-    foliage.position.set(offset[0], offset[1], offset[2]);
-    foliage.castShadow = true;
-    group.add(foliage);
-  }
-
-  return group;
+  const billboardAsset = cloneModelSync(MODEL_URLS.propBillboard);
+  return billboardAsset || createFallbackBillboard();
 }
 
 function createLampPost() {
   const group = new THREE.Group();
-
   const poleMaterial = new THREE.MeshStandardMaterial({
     color: "#909aa2",
     metalness: 0.4,
     roughness: 0.55,
   });
 
-  const pole = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.1, 0.12, 4.4, 12),
-    poleMaterial,
-  );
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 4.4, 12), poleMaterial);
   pole.position.y = 2.2;
   pole.castShadow = true;
   group.add(pole);
 
-  const arm = new THREE.Mesh(
-    new THREE.BoxGeometry(1.1, 0.1, 0.1),
-    poleMaterial,
-  );
+  const arm = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.1, 0.1), poleMaterial);
   arm.position.set(0.45, 4.2, 0);
   group.add(arm);
 
@@ -773,7 +811,6 @@ function createLampPost() {
   );
   lightBox.position.set(0.95, 4.03, 0);
   group.add(lightBox);
-
   return group;
 }
 
@@ -807,38 +844,54 @@ function createHouse() {
   roof.position.y = height + 0.9;
   roof.castShadow = true;
   group.add(roof);
-
   return group;
 }
 
-function createBillboard() {
+function createFallbackTree(seed) {
   const group = new THREE.Group();
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.24, 0.34, 2.2, 10),
+    new THREE.MeshStandardMaterial({ color: "#7b5d3f", roughness: 1 }),
+  );
+  trunk.position.y = 1.1;
+  group.add(trunk);
 
+  const foliageMaterial = new THREE.MeshStandardMaterial({
+    color: seed % 2 === 0 ? "#547a38" : "#5f8642",
+    roughness: 1,
+  });
+  for (const [x, y, z] of [
+    [0, 3.1, 0],
+    [0.9, 2.8, 0.2],
+    [-0.9, 2.7, -0.1],
+  ]) {
+    const foliage = new THREE.Mesh(new THREE.SphereGeometry(1.2, 16, 16), foliageMaterial);
+    foliage.position.set(x, y, z);
+    foliage.castShadow = true;
+    group.add(foliage);
+  }
+  return group;
+}
+
+function createFallbackBillboard() {
+  const group = new THREE.Group();
   const pole = new THREE.Mesh(
     new THREE.BoxGeometry(0.22, 4.2, 0.22),
-    new THREE.MeshStandardMaterial({
-      color: "#7d8388",
-      metalness: 0.35,
-      roughness: 0.6,
-    }),
+    new THREE.MeshStandardMaterial({ color: "#7d8388", roughness: 0.6 }),
   );
   pole.position.y = 2.1;
-  pole.castShadow = true;
   group.add(pole);
 
-  const boardTexture = createBillboardTexture();
   const board = new THREE.Mesh(
     new THREE.BoxGeometry(3.8, 2.2, 0.2),
     new THREE.MeshStandardMaterial({
       color: "#ffffff",
-      map: boardTexture,
+      map: createBillboardTexture(),
       roughness: 0.8,
     }),
   );
   board.position.y = 4.1;
-  board.castShadow = true;
   group.add(board);
-
   return group;
 }
 
@@ -873,6 +926,74 @@ function resetRoadsideProp(prop, z) {
   prop.rotation.y = side > 0 ? Math.PI * 1.2 : Math.PI * 0.2;
 }
 
+function refreshPlayerVisual() {
+  while (playerVisualGroup.children.length > 0) {
+    playerVisualGroup.remove(playerVisualGroup.children[0]);
+  }
+
+  const skin = getSelectedSkin();
+  let visual = cloneModelSync(skin.modelUrl);
+
+  if (!visual) {
+    visual = createFallbackPlayerVisual(skin);
+  } else {
+    tintModel(visual, skin.accent, skin.glow, 0.16);
+  }
+
+  visual.scale.setScalar(0.92);
+  playerVisualGroup.add(visual);
+  applyPlayerFx(gameState.rushActive ? 0.8 : gameState.dashActive ? 0.65 : 0.18);
+}
+
+function createFallbackPlayerVisual(skin) {
+  const group = new THREE.Group();
+
+  const body = new THREE.Mesh(
+    new THREE.SphereGeometry(1.08, 36, 36),
+    new THREE.MeshPhysicalMaterial({
+      color: skin.accent,
+      emissive: skin.glow,
+      emissiveIntensity: 0.18,
+      roughness: 0.32,
+      clearcoat: 1,
+      clearcoatRoughness: 0.18,
+    }),
+  );
+  group.add(body);
+
+  const stripe = new THREE.Mesh(
+    new THREE.TorusGeometry(0.74, 0.08, 16, 48),
+    new THREE.MeshStandardMaterial({
+      color: "#fff6e8",
+      roughness: 0.5,
+    }),
+  );
+  stripe.rotation.x = Math.PI * 0.5;
+  group.add(stripe);
+
+  return group;
+}
+
+function applyPlayerFx(intensity) {
+  const skin = getSelectedSkin();
+  playerVisualGroup.traverse((child) => {
+    if (!child.isMesh || !child.material) {
+      return;
+    }
+
+    if (Array.isArray(child.material)) {
+      return;
+    }
+
+    if (child.material.emissive) {
+      child.material.emissive.set(skin.glow);
+      child.material.emissiveIntensity = intensity;
+    }
+  });
+
+  playerCore.material.emissiveIntensity = intensity + 0.4;
+}
+
 function refreshRow(row) {
   while (row.children.length > 0) {
     row.remove(row.children[0]);
@@ -880,16 +1001,14 @@ function refreshRow(row) {
 
   row.userData.blocks = [];
   row.userData.nearMissResolved = false;
-  const blockedLaneCount = Math.random() > 0.5 ? 2 : 1;
+  const blockedLaneCount = Math.random() > 0.52 ? 2 : 1;
   const availableLanes = [0, 1, 2];
 
   for (let index = 0; index < blockedLaneCount; index += 1) {
-    const laneIndex = availableLanes.splice(
-      Math.floor(Math.random() * availableLanes.length),
-      1,
-    )[0];
+    const laneIndex = availableLanes.splice(Math.floor(Math.random() * availableLanes.length), 1)[0];
     const obstacle = buildObstacle();
     obstacle.position.x = lanePositions[laneIndex];
+    obstacle.userData.baseX = lanePositions[laneIndex];
     obstacle.userData.laneIndex = laneIndex;
     row.userData.blocks.push(obstacle);
     row.add(obstacle);
@@ -899,7 +1018,44 @@ function refreshRow(row) {
 function buildObstacle() {
   const roll = Math.random();
 
-  if (roll < 0.34) {
+  if (gameState.assetsReady) {
+    if (roll < 0.35) {
+      const car = cloneModelSync(MODEL_URLS.obstacleCar);
+      if (car) {
+        car.scale.setScalar(0.6);
+        car.position.y = 0.05;
+        car.userData.swayAmplitude = 0.38;
+        car.userData.swaySpeed = 2.1;
+        car.userData.swaySeed = Math.random() * Math.PI * 2;
+        return car;
+      }
+    }
+
+    if (roll < 0.7) {
+      const truck = cloneModelSync(MODEL_URLS.obstacleTruck);
+      if (truck) {
+        truck.scale.setScalar(0.56);
+        truck.position.y = 0.02;
+        truck.userData.swayAmplitude = 0.18;
+        truck.userData.swaySpeed = 1.4;
+        truck.userData.swaySeed = Math.random() * Math.PI * 2;
+        return truck;
+      }
+    }
+
+    const roadblock = cloneModelSync(MODEL_URLS.obstacleRoadblock);
+    if (roadblock) {
+      roadblock.scale.setScalar(0.75);
+      roadblock.position.y = 0.02;
+      return roadblock;
+    }
+  }
+
+  return buildFallbackObstacle(roll);
+}
+
+function buildFallbackObstacle(roll = Math.random()) {
+  if (roll < 0.5) {
     const barrier = new THREE.Mesh(
       new THREE.BoxGeometry(2.5, 1.5, 0.9),
       new THREE.MeshStandardMaterial({
@@ -914,81 +1070,20 @@ function buildObstacle() {
     return barrier;
   }
 
-  if (roll < 0.68) {
-    const group = new THREE.Group();
-
-    for (const offset of [-0.52, 0.52]) {
-      const cone = createCone();
-      cone.position.x = offset;
-      group.add(cone);
-    }
-
-    return group;
-  }
-
   const group = new THREE.Group();
-
   const base = new THREE.Mesh(
     new THREE.BoxGeometry(2.6, 0.22, 1.5),
-    new THREE.MeshStandardMaterial({
-      color: "#2f2f2f",
-      roughness: 1,
-    }),
+    new THREE.MeshStandardMaterial({ color: "#2f2f2f", roughness: 1 }),
   );
   base.position.y = 0.11;
-  base.receiveShadow = true;
   group.add(base);
 
   const sign = new THREE.Mesh(
     new THREE.BoxGeometry(1.6, 1.2, 0.16),
-    new THREE.MeshStandardMaterial({
-      color: "#f7c948",
-      roughness: 0.8,
-    }),
+    new THREE.MeshStandardMaterial({ color: "#f7c948", roughness: 0.8 }),
   );
   sign.position.y = 1.15;
-  sign.castShadow = true;
   group.add(sign);
-
-  return group;
-}
-
-function createCone() {
-  const group = new THREE.Group();
-
-  const base = new THREE.Mesh(
-    new THREE.BoxGeometry(0.9, 0.16, 0.9),
-    new THREE.MeshStandardMaterial({
-      color: "#2a2a2a",
-      roughness: 1,
-    }),
-  );
-  base.position.y = 0.08;
-  base.receiveShadow = true;
-  group.add(base);
-
-  const cone = new THREE.Mesh(
-    new THREE.ConeGeometry(0.34, 1.2, 18),
-    new THREE.MeshStandardMaterial({
-      color: "#ff7d2c",
-      roughness: 0.82,
-    }),
-  );
-  cone.position.y = 0.7;
-  cone.castShadow = true;
-  cone.receiveShadow = true;
-  group.add(cone);
-
-  const stripe = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.22, 0.28, 0.1, 18),
-    new THREE.MeshStandardMaterial({
-      color: "#f7f1e3",
-      roughness: 0.75,
-    }),
-  );
-  stripe.position.y = 0.68;
-  group.add(stripe);
-
   return group;
 }
 
@@ -1002,10 +1097,7 @@ function refreshCoinRow(row) {
   const lanes = shuffle([0, 1, 2]).slice(0, coinCount);
 
   for (const laneIndex of lanes) {
-    const coin = new THREE.Mesh(
-      new THREE.TorusGeometry(0.42, 0.12, 10, 22),
-      coinMaterial,
-    );
+    const coin = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.12, 10, 22), coinMaterial);
     coin.rotation.x = Math.PI * 0.5;
     coin.position.set(lanePositions[laneIndex], 1.4, 0);
     coin.userData.phase = Math.random() * Math.PI * 2;
@@ -1035,11 +1127,11 @@ function maybeAwardNearMiss(row) {
 function bumpCombo() {
   gameState.combo = Math.min(gameState.combo + 1, 12);
   gameState.comboTimer = 3.2;
+  gameState.rushCharge = Math.min(1, gameState.rushCharge + 0.14);
 }
 
 function triggerDash() {
   ensureAudioContext();
-
   if (!gameState.running || gameState.paused || gameState.dashCharge < 1) {
     return;
   }
@@ -1048,36 +1140,34 @@ function triggerDash() {
   gameState.dashActive = true;
   gameState.dashTimer = 0.48;
   gameState.invulnerableTimer = 0.45;
-  playerBodyMaterial.emissiveIntensity = 0.95;
+  applyPlayerFx(gameState.rushActive ? 1.1 : 0.72);
   playSound("dash");
-  pushStatus("Dash acildi. Kisa sureli koruma aktif.");
+  pushStatus("Dash aktif. Kisa sureli koruma acildi.");
 }
 
 function togglePause() {
   ensureAudioContext();
-
   if (!gameState.started || !gameState.running) {
     return;
   }
 
   gameState.paused = !gameState.paused;
-
   if (gameState.paused) {
     setOverlayContent("paused");
   } else {
     overlayElement.classList.add("is-hidden");
   }
-
   updateHudState();
+  syncHud();
 }
 
 function onOverlayPrimary() {
   ensureAudioContext();
-
   if (gameState.overlayMode === "paused") {
     gameState.paused = false;
     overlayElement.classList.add("is-hidden");
     updateHudState();
+    syncHud();
     playSound("resume");
     return;
   }
@@ -1104,11 +1194,14 @@ function startGame() {
   gameState.dashActive = false;
   gameState.dashTimer = 0;
   gameState.invulnerableTimer = 0;
+  gameState.rushCharge = 0;
+  gameState.rushActive = false;
+  gameState.rushTimer = 0;
 
   player.position.x = lanePositions[1];
   player.rotation.z = 0;
-  playerBodyMaterial.color.set("#ef6c32");
-  playerBodyMaterial.emissiveIntensity = 0.15;
+  refreshPlayerVisual();
+  rebuildSceneObjects();
 
   obstacleRows.forEach((row, index) => {
     row.position.z = -28 - index * rowSpacing;
@@ -1120,17 +1213,14 @@ function startGame() {
     refreshCoinRow(row);
   });
 
-  scoreElement.textContent = "0";
-  levelElement.textContent = "1";
-  coinsElement.textContent = "0";
-  comboElement.textContent = "x1";
-  pushStatus("Kosu basladi. Bugun challenge'i tamamlama zamani.");
   overlayElement.classList.add("is-hidden");
+  pushStatus("Kosu basladi. Trafik sertlesmeden ritmi yakala.");
   updateHudState();
+  syncHud();
   playSound("start");
 }
 
-function triggerGameOver() {
+async function triggerGameOver() {
   if (!gameState.running) {
     return;
   }
@@ -1139,7 +1229,6 @@ function triggerGameOver() {
   gameState.paused = false;
   gameState.bestScore = Math.max(gameState.bestScore, gameState.score);
   localStorage.setItem(STORAGE_KEYS.bestScore, String(gameState.bestScore));
-  bestScoreElement.textContent = formatScore(gameState.bestScore);
 
   gameState.lastRun = {
     score: gameState.score,
@@ -1147,14 +1236,36 @@ function triggerGameOver() {
     level: gameState.level,
     nearMisses: gameState.nearMisses,
     combo: gameState.combo,
+    skin: gameState.selectedSkinId,
   };
 
-  playerBodyMaterial.color.set("#c44f29");
-  playerBodyMaterial.emissiveIntensity = 0.55;
-  saveLeaderboardEntry();
+  saveLocalLeaderboardEntry();
+  await saveOnlineScore();
   setOverlayContent("gameover");
   updateHudState();
+  syncHud();
   playSound("crash");
+}
+
+async function saveOnlineScore() {
+  const result = await submitOnlineScore({
+    name: gameState.playerName,
+    score: gameState.score,
+    coins: gameState.coins,
+    level: gameState.level,
+    skin: gameState.selectedSkinId,
+  });
+
+  if (result.enabled && !result.error) {
+    leaderboardNoticeElement.textContent = "Skor online tabloya gonderildi.";
+    await refreshLeaderboard();
+    return;
+  }
+
+  if (result.enabled && result.error) {
+    leaderboardNoticeElement.textContent =
+      "Online tabloya yazilamadi. Supabase RLS veya tablo ayarlarini kontrol et.";
+  }
 }
 
 function syncHud() {
@@ -1163,6 +1274,7 @@ function syncHud() {
   levelElement.textContent = String(gameState.level);
   coinsElement.textContent = formatScore(gameState.coins);
   comboElement.textContent = `x${gameState.combo}`;
+  rushElement.textContent = gameState.rushActive ? "AKTIF" : `${Math.round(gameState.rushCharge * 100)}%`;
   dashMeterElement.textContent = gameState.dashCharge >= 1 ? "Hazir" : `${Math.round(gameState.dashCharge * 100)}%`;
   dashButtonElement.disabled = gameState.dashCharge < 1 || !gameState.running || gameState.paused;
   pauseButtonElement.textContent = gameState.paused ? "Devam" : "Duraklat";
@@ -1177,44 +1289,43 @@ function setOverlayContent(mode) {
   overlayElement.classList.remove("is-hidden");
 
   if (mode === "intro") {
-    overlayTextElement.textContent =
-      gameState.sharedChallenge
-        ? `${gameState.sharedChallenge.from} sana ${formatScore(gameState.sharedChallenge.score)} puan ve ${gameState.sharedChallenge.coins} coinlik bir challenge attı.`
-        : "Coin topla, yakin fark bonuslari yakala, dash ile sıkıştığın anı kurtar ve arkadasina challenge linki yolla.";
+    overlayTextElement.textContent = gameState.sharedChallenge
+      ? `${gameState.sharedChallenge.from} seni ${formatScore(gameState.sharedChallenge.score)} puan ve ${gameState.sharedChallenge.coins} coinlik challenge'a cagirdi.`
+      : "Gercek 3D asset paketi, online skor tablosu, skin secimi ve rush modu ile oyunu buyuttuk.";
     overlayButtonElement.textContent = gameState.started ? "Yeni Kosu" : "Oyunu Baslat";
   }
 
   if (mode === "paused") {
     overlayTextElement.textContent =
-      "Oyun duraklatildi. Hazirsan devam et, yoksa challenge linki kopyalayip arkadaslarini oyuna cagir.";
+      "Oyun durdu. Hazirsan devam et, degilsen skin degistirip yeni challenge olustur.";
     overlayButtonElement.textContent = "Devam Et";
   }
 
   if (mode === "gameover" && gameState.lastRun) {
     overlayTextElement.textContent =
-      `Skorun ${formatScore(gameState.lastRun.score)}. ${gameState.lastRun.coins} coin, ${gameState.lastRun.nearMisses} yakin fark ve max ${gameState.lastRun.combo}x combo ile kosuyu bitirdin.`;
+      `Skorun ${formatScore(gameState.lastRun.score)}. ${gameState.lastRun.coins} coin, ${gameState.lastRun.nearMisses} yakin fark ve ${gameState.lastRun.skin} skin ile kosuyu bitirdin.`;
     overlayButtonElement.textContent = "Tekrar Oyna";
   }
 
   updateChallengeCopy();
-  renderLeaderboard();
+  renderLeaderboardList(
+    gameState.leaderboardMode === "online" ? gameState.onlineLeaderboard : gameState.leaderboard,
+    gameState.leaderboardMode,
+  );
 }
 
 function updateChallengeCopy() {
   dailyChallengeElement.textContent = `${formatScore(gameState.dailyChallenge.score)} puan ve ${gameState.dailyChallenge.coins} coin`;
-
-  if (gameState.dailyChallengeCompleted) {
-    challengeStatusElement.textContent = "Bugunun gorevi tamamlandi. Yarin yeni hedef gelecek.";
-  } else {
-    challengeStatusElement.textContent = "Bugunun gorevi devam ediyor.";
-  }
+  challengeStatusElement.textContent = gameState.dailyChallengeCompleted
+    ? "Bugunun gorevi tamamlandi. Yarin yeni hedef gelecek."
+    : "Bugunun gorevi devam ediyor.";
 
   if (gameState.sharedChallenge) {
     sharedChallengeElement.textContent =
-      `${gameState.sharedChallenge.from} seni ${formatScore(gameState.sharedChallenge.score)} puanlik bir duelloya cagirdi.`;
+      `${gameState.sharedChallenge.from} seni ${formatScore(gameState.sharedChallenge.score)} puanlik duelloya cagirdi.`;
   } else {
     sharedChallengeElement.textContent =
-      "Challenge linki kopyalayip arkadasina gonder. Linkte hedef skor ve coin gorevi yer alir.";
+      "Challenge linki kopyalayip arkadasina gonder. Hedef skor ve coin gorevi linkte tasinir.";
   }
 }
 
@@ -1235,12 +1346,13 @@ function maybeCompleteDailyChallenge() {
   }
 }
 
-function saveLeaderboardEntry() {
+function saveLocalLeaderboardEntry() {
   const entry = {
     name: gameState.playerName,
     score: gameState.score,
     coins: gameState.coins,
     level: gameState.level,
+    skin: gameState.selectedSkinId,
     date: new Date().toISOString(),
   };
 
@@ -1249,42 +1361,58 @@ function saveLeaderboardEntry() {
     .slice(0, 8);
 
   localStorage.setItem(STORAGE_KEYS.leaderboard, JSON.stringify(gameState.leaderboard));
-  renderLeaderboard();
 }
 
-function renderLeaderboard() {
+function renderLeaderboardList(entries, mode) {
   leaderboardListElement.innerHTML = "";
 
-  if (gameState.leaderboard.length === 0) {
+  if (entries.length === 0) {
     const emptyItem = document.createElement("li");
     emptyItem.className = "leaderboard__item";
-    emptyItem.textContent = "Ilk skoru sen birak.";
+    emptyItem.textContent = mode === "online" ? "Online skor bekleniyor." : "Ilk skoru sen birak.";
     leaderboardListElement.append(emptyItem);
     return;
   }
 
-  gameState.leaderboard.forEach((entry, index) => {
+  entries.forEach((entry, index) => {
     const item = document.createElement("li");
     item.className = "leaderboard__item";
     item.innerHTML = `
       <span class="leaderboard__rank">${index + 1}</span>
       <span class="leaderboard__meta">
         <strong>${escapeHtml(entry.name)}</strong>
-        <span>${entry.coins} coin · Lv ${entry.level}</span>
+        <span>${entry.coins} coin · Lv ${entry.level} · ${escapeHtml(entry.skin || "classic")}</span>
       </span>
       <span class="leaderboard__score">
         ${formatScore(entry.score)}
-        <small>${formatShortDate(entry.date)}</small>
+        <small>${formatShortDate(entry.created_at || entry.date)}</small>
       </span>
     `;
     leaderboardListElement.append(item);
   });
 }
 
-function onPlayerNameInput(event) {
-  const nextName = sanitizePlayerName(event.target.value || "Oyuncu");
-  gameState.playerName = nextName;
-  localStorage.setItem(STORAGE_KEYS.playerName, nextName);
+function renderSkinPicker() {
+  skinPickerElement.innerHTML = "";
+
+  for (const skin of SKINS) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `skin-card${skin.id === gameState.selectedSkinId ? " is-active" : ""}`;
+    button.innerHTML = `
+      <span class="skin-card__swatch" style="background: linear-gradient(135deg, ${skin.accent}, ${skin.glow});"></span>
+      <strong>${skin.name}</strong>
+      <span>${skin.description}</span>
+    `;
+    button.addEventListener("click", () => {
+      gameState.selectedSkinId = skin.id;
+      localStorage.setItem(STORAGE_KEYS.selectedSkin, skin.id);
+      renderSkinPicker();
+      refreshPlayerVisual();
+      pushStatus(`${skin.name} skin secildi.`);
+    });
+    skinPickerElement.append(button);
+  }
 }
 
 async function onShareChallenge() {
@@ -1294,7 +1422,7 @@ async function onShareChallenge() {
     gameState.lastRun?.score || 0,
     gameState.sharedChallenge?.score || 0,
     gameState.dailyChallenge.score,
-    Math.max(1200, gameState.bestScore),
+    Math.max(1600, gameState.bestScore),
   );
   const targetCoins = Math.max(
     gameState.lastRun?.coins || 0,
@@ -1307,43 +1435,42 @@ async function onShareChallenge() {
   url.searchParams.set("challengeScore", String(targetScore));
   url.searchParams.set("challengeCoins", String(targetCoins));
 
-  const shareText = `${gameState.playerName} sana Wep Oyunu challenge'i atti: ${formatScore(targetScore)} puan ve ${targetCoins} coin.`;
-
   try {
     if (navigator.share) {
       await navigator.share({
         title: "Wep Oyunu Challenge",
-        text: shareText,
+        text: `${gameState.playerName} sana challenge atti.`,
         url: url.toString(),
       });
     } else if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(url.toString());
     }
-
-    pushStatus("Challenge linki hazir. Arkadasina yollayabilirsin.");
+    pushStatus("Challenge linki hazir.");
     playSound("share");
-  } catch (error) {
+  } catch {
     pushStatus("Challenge linki paylasilamadi.");
   }
+}
+
+function onPlayerNameInput(event) {
+  const nextName = sanitizePlayerName(event.target.value || "Oyuncu");
+  gameState.playerName = nextName;
+  localStorage.setItem(STORAGE_KEYS.playerName, nextName);
 }
 
 function onKeyDown(event) {
   if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") {
     moveLane(-1);
   }
-
   if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") {
     moveLane(1);
   }
-
   if (event.key === "Shift") {
     triggerDash();
   }
-
   if (event.key.toLowerCase() === "p" || event.key === "Escape") {
     togglePause();
   }
-
   if (event.code === "Space" && !gameState.running) {
     onOverlayPrimary();
   }
@@ -1355,7 +1482,8 @@ function onPointerDown(event) {
     shareButtonElement.contains(event.target) ||
     pauseButtonElement.contains(event.target) ||
     dashButtonElement.contains(event.target) ||
-    playerNameElement.contains(event.target)
+    playerNameElement.contains(event.target) ||
+    skinPickerElement.contains(event.target)
   ) {
     return;
   }
@@ -1366,7 +1494,6 @@ function onPointerDown(event) {
     onOverlayPrimary();
     return;
   }
-
   if (gameState.paused) {
     return;
   }
@@ -1376,18 +1503,13 @@ function onPointerDown(event) {
     return;
   }
 
-  if (event.clientX < window.innerWidth / 2) {
-    moveLane(-1);
-  } else {
-    moveLane(1);
-  }
+  moveLane(event.clientX < window.innerWidth / 2 ? -1 : 1);
 }
 
 function moveLane(direction) {
   if (!gameState.running || gameState.paused) {
     return;
   }
-
   gameState.targetLane = THREE.MathUtils.clamp(gameState.targetLane + direction, 0, 2);
 }
 
@@ -1398,32 +1520,14 @@ function onResize() {
   composer.setSize(window.innerWidth, window.innerHeight);
 }
 
-function formatScore(value) {
-  return new Intl.NumberFormat("tr-TR").format(value);
+function getSelectedSkin() {
+  return SKINS.find((skin) => skin.id === gameState.selectedSkinId) || SKINS[0];
 }
 
-function interpolateLanePosition(laneValue) {
-  const clampedLane = THREE.MathUtils.clamp(laneValue, 0, lanePositions.length - 1);
-  const lowerLane = Math.floor(clampedLane);
-  const upperLane = Math.ceil(clampedLane);
-  const blend = clampedLane - lowerLane;
-
-  return THREE.MathUtils.lerp(
-    lanePositions[lowerLane],
-    lanePositions[upperLane],
-    blend,
-  );
-}
-
-function loadLeaderboard() {
+function loadLocalLeaderboard() {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.leaderboard);
-    if (!raw) {
-      return [];
-    }
-
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
@@ -1465,13 +1569,15 @@ function pushStatus(message) {
 
 function shuffle(items) {
   const next = [...items];
-
   for (let index = next.length - 1; index > 0; index -= 1) {
     const swapIndex = Math.floor(Math.random() * (index + 1));
     [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
   }
-
   return next;
+}
+
+function formatScore(value) {
+  return new Intl.NumberFormat("tr-TR").format(value);
 }
 
 function formatShortDate(value) {
@@ -1479,6 +1585,14 @@ function formatShortDate(value) {
     month: "short",
     day: "numeric",
   }).format(new Date(value));
+}
+
+function interpolateLanePosition(laneValue) {
+  const clampedLane = THREE.MathUtils.clamp(laneValue, 0, lanePositions.length - 1);
+  const lowerLane = Math.floor(clampedLane);
+  const upperLane = Math.ceil(clampedLane);
+  const blend = clampedLane - lowerLane;
+  return THREE.MathUtils.lerp(lanePositions[lowerLane], lanePositions[upperLane], blend);
 }
 
 function escapeHtml(value) {
@@ -1494,14 +1608,11 @@ function ensureAudioContext() {
     if (!AudioContextCtor) {
       return null;
     }
-
     audioContext = new AudioContextCtor();
   }
-
   if (audioContext.state === "suspended") {
     audioContext.resume();
   }
-
   return audioContext;
 }
 
@@ -1541,12 +1652,15 @@ function playSound(type) {
       { time: 0, frequency: 460, duration: 0.08, gain: 0.03, type: "triangle" },
       { time: 0.08, frequency: 640, duration: 0.08, gain: 0.025, type: "triangle" },
     ],
-    resume: [
-      { time: 0, frequency: 420, duration: 0.06, gain: 0.03, type: "sine" },
-    ],
+    resume: [{ time: 0, frequency: 420, duration: 0.06, gain: 0.03, type: "sine" }],
     shield: [
       { time: 0, frequency: 890, duration: 0.06, gain: 0.025, type: "square" },
       { time: 0.06, frequency: 660, duration: 0.06, gain: 0.02, type: "square" },
+    ],
+    rush: [
+      { time: 0, frequency: 260, duration: 0.08, gain: 0.05, type: "sawtooth" },
+      { time: 0.07, frequency: 420, duration: 0.1, gain: 0.04, type: "triangle" },
+      { time: 0.15, frequency: 680, duration: 0.14, gain: 0.03, type: "sine" },
     ],
   };
 
@@ -1632,7 +1746,6 @@ function createGrassTexture() {
   canvasElement.width = 256;
   canvasElement.height = 256;
   const context = canvasElement.getContext("2d");
-
   context.fillStyle = "#6b8748";
   context.fillRect(0, 0, 256, 256);
 
@@ -1655,7 +1768,6 @@ function createBuildingTexture() {
   canvasElement.width = 256;
   canvasElement.height = 256;
   const context = canvasElement.getContext("2d");
-
   context.fillStyle = "#cdbfa7";
   context.fillRect(0, 0, 256, 256);
 
@@ -1683,7 +1795,6 @@ function createBarrierTexture() {
   canvasElement.width = 256;
   canvasElement.height = 128;
   const context = canvasElement.getContext("2d");
-
   context.fillStyle = "#d8d8d2";
   context.fillRect(0, 0, 256, 128);
 
@@ -1706,18 +1817,15 @@ function createBillboardTexture() {
   canvasElement.width = 256;
   canvasElement.height = 128;
   const context = canvasElement.getContext("2d");
-
   const gradient = context.createLinearGradient(0, 0, 256, 128);
   gradient.addColorStop(0, "#2366c5");
   gradient.addColorStop(1, "#ff964f");
   context.fillStyle = gradient;
   context.fillRect(0, 0, 256, 128);
-
   context.fillStyle = "#ffffff";
   context.font = "700 28px Space Grotesk";
   context.fillText("WEP", 22, 48);
   context.font = "500 18px Space Grotesk";
-  context.fillText("Dash at, skoru birakma", 22, 82);
-
+  context.fillText("Rush modunu ac", 22, 82);
   return new THREE.CanvasTexture(canvasElement);
 }

@@ -11,11 +11,15 @@ Three.js ile hazirlanmis, tarayicidan oynanan 3D refleks oyunu prototipi.
 - Sis, isik, glow ve golge kullanimi
 - Mobil ve desktop kontrol desteği
 - Vercel uyumlu statik proje yapisi
+- Gercek model dosyalari ile asset paketi
+- Skin sistemi
+- Opsiyonel online leaderboard (Supabase)
 
 ## Kurulum
 
 ```bash
 npm install
+npm run generate:assets
 npm run dev
 ```
 
@@ -30,6 +34,16 @@ npm run dev:host
 ```bash
 npm run build
 ```
+
+## Online Leaderboard
+
+Supabase kullanmak istersen:
+
+1. `.env.example` dosyasini `.env` olarak kopyala
+2. Supabase proje URL ve anon key bilgilerini gir
+3. `supabase/schema.sql` icindeki tabloyu calistir
+
+Env tanimli degilse oyun otomatik olarak yerel leaderboard moduna dusur.
 
 ## Yayina Alma
 
