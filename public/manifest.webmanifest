@@ -1,0 +1,17 @@
+{
+  "name": "Wep Oyunu",
+  "short_name": "Wep",
+  "description": "Three.js ile yapilmis, tarayicidan oynanan 3D refleks oyunu.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#d7e7f4",
+  "theme_color": "#0d1722",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
