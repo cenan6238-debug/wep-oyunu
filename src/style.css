@@ -1,14 +1,13 @@
 @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap");
 
 :root {
-  color-scheme: dark;
-  --bg: #090c14;
-  --panel: rgba(8, 12, 20, 0.62);
-  --panel-border: rgba(176, 235, 255, 0.22);
-  --text: #f4f7ff;
-  --muted: #9cadc6;
-  --accent: #7ff7ff;
-  --accent-warm: #ff9a58;
+  color-scheme: light;
+  --panel: rgba(255, 255, 255, 0.72);
+  --panel-border: rgba(93, 118, 140, 0.16);
+  --text: #1d2a37;
+  --muted: #5f7386;
+  --accent: #2d7dd2;
+  --accent-warm: #ff9b5a;
 }
 
 * {
@@ -21,8 +20,8 @@ body {
   min-height: 100%;
   overflow: hidden;
   background:
-    radial-gradient(circle at top, rgba(37, 67, 109, 0.55), transparent 30%),
-    linear-gradient(180deg, #0b1020 0%, #090c14 58%, #05070b 100%);
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.55), transparent 32%),
+    linear-gradient(180deg, #e9f1f8 0%, #d7e5f1 56%, #c8dae6 100%);
   font-family: "Space Grotesk", sans-serif;
   color: var(--text);
 }
@@ -55,6 +54,16 @@ body {
 .hud__bottom {
   display: flex;
   justify-content: center;
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease,
+    visibility 220ms ease;
+}
+
+.hud__bottom.is-hidden {
+  opacity: 0;
+  transform: translateY(14px);
+  visibility: hidden;
 }
 
 .panel,
@@ -63,8 +72,8 @@ body {
   background: var(--panel);
   border: 1px solid var(--panel-border);
   box-shadow:
-    0 20px 60px rgba(0, 0, 0, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 18px 48px rgba(36, 58, 77, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.45);
 }
 
 .panel {
@@ -133,10 +142,9 @@ body {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 50% 20%, rgba(94, 200, 255, 0.18), transparent 28%),
-    radial-gradient(circle at 50% 80%, rgba(255, 122, 69, 0.14), transparent 26%),
-    rgba(3, 6, 10, 0.58);
-  backdrop-filter: blur(10px);
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.26), transparent 24%),
+    linear-gradient(180deg, rgba(198, 216, 231, 0.52), rgba(98, 123, 145, 0.32));
+  backdrop-filter: blur(8px);
 }
 
 .overlay__card {
@@ -144,13 +152,13 @@ body {
   width: min(680px, 100%);
   padding: clamp(24px, 4vw, 36px);
   border-radius: 32px;
-  border: 1px solid rgba(176, 235, 255, 0.24);
+  border: 1px solid rgba(128, 158, 181, 0.22);
   background:
-    linear-gradient(180deg, rgba(15, 22, 35, 0.92), rgba(9, 13, 22, 0.82)),
-    rgba(8, 12, 20, 0.82);
+    linear-gradient(180deg, rgba(253, 254, 255, 0.94), rgba(241, 247, 251, 0.86)),
+    rgba(255, 255, 255, 0.82);
   box-shadow:
-    0 40px 120px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    0 40px 120px rgba(31, 52, 70, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.58);
 }
 
 .eyebrow {
@@ -171,7 +179,7 @@ body {
 .overlay__text {
   margin: 18px 0 0;
   max-width: 44ch;
-  color: #dce7fb;
+  color: #344555;
   font-size: clamp(1rem, 2.2vw, 1.12rem);
   line-height: 1.6;
 }
@@ -186,8 +194,8 @@ body {
 .overlay__meta span {
   padding: 10px 14px;
   border-radius: 999px;
-  border: 1px solid rgba(176, 235, 255, 0.2);
-  background: rgba(19, 28, 43, 0.78);
+  border: 1px solid rgba(120, 146, 165, 0.2);
+  background: rgba(241, 247, 251, 0.9);
   color: var(--muted);
   font-size: 0.84rem;
 }
@@ -197,13 +205,13 @@ body {
   border: 0;
   border-radius: 18px;
   padding: 14px 22px;
-  background: linear-gradient(135deg, #8ef9ff, #ff9b5a);
-  color: #051018;
+  background: linear-gradient(135deg, #2f89e2, #ff9b5a);
+  color: #fff;
   font: inherit;
   font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 20px 40px rgba(30, 176, 228, 0.25);
+  box-shadow: 0 16px 36px rgba(47, 137, 226, 0.24);
   transition:
     transform 160ms ease,
     box-shadow 160ms ease;
@@ -211,7 +219,7 @@ body {
 
 .overlay__button:hover {
   transform: translateY(-2px);
-  box-shadow: 0 24px 48px rgba(30, 176, 228, 0.34);
+  box-shadow: 0 20px 44px rgba(47, 137, 226, 0.32);
 }
 
 .overlay__button:active {
