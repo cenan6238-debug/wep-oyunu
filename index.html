@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wep Oyunu</title>
+    <meta name="theme-color" content="#090c14" />
+    <meta
+      name="description"
+      content="Three.js ile yapılmış, tarayıcıdan oynanan 3D refleks oyunu."
+    />
+    <meta property="og:title" content="Wep Oyunu" />
+    <meta
+      property="og:description"
+      content="Neon sahnede küreyi şeritler arasında kaydır, engellerden kaç ve skorunu büyüt."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <script type="module" src="/src/main.js"></script>
+  </head>
+  <body>
+    <div class="hud">
+      <div class="hud__top">
+        <div class="panel">
+          <span class="label">Skor</span>
+          <strong id="score">0</strong>
+        </div>
+        <div class="panel">
+          <span class="label">En Iyi</span>
+          <strong id="best-score">0</strong>
+        </div>
+        <div class="panel">
+          <span class="label">Seviye</span>
+          <strong id="level">1</strong>
+        </div>
+      </div>
+
+      <div class="hud__bottom">
+        <div class="card">
+          <p class="title">Wep Oyunu</p>
+          <p id="status">Engellerden kac, ritmi yakala, skoru buyut.</p>
+          <p class="hint">Desktop: A/D veya ok tuslari. Mobil: ekranin sol veya sag tarafina dokun.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="overlay" id="overlay">
+      <div class="overlay__backdrop"></div>
+      <div class="overlay__card">
+        <p class="eyebrow">3D Web Arcade</p>
+        <h1 class="overlay__title">Refleksini konuştur, akışı bozma.</h1>
+        <p class="overlay__text" id="overlay-text">
+          Küreyi şeritler arasında kaydır, neon engellerden kaç ve hız arttıkça ritmi koru.
+        </p>
+        <div class="overlay__meta">
+          <span>Three.js</span>
+          <span>Mobil + Desktop</span>
+          <span>Tek link ile oynanır</span>
+        </div>
+        <button class="overlay__button" id="overlay-button" type="button">Oyunu Baslat</button>
+      </div>
+    </div>
+    <canvas id="scene"></canvas>
+  </body>
+</html>

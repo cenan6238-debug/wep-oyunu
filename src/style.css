@@ -1,0 +1,264 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap");
+
+:root {
+  color-scheme: dark;
+  --bg: #090c14;
+  --panel: rgba(8, 12, 20, 0.62);
+  --panel-border: rgba(176, 235, 255, 0.22);
+  --text: #f4f7ff;
+  --muted: #9cadc6;
+  --accent: #7ff7ff;
+  --accent-warm: #ff9a58;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at top, rgba(37, 67, 109, 0.55), transparent 30%),
+    linear-gradient(180deg, #0b1020 0%, #090c14 58%, #05070b 100%);
+  font-family: "Space Grotesk", sans-serif;
+  color: var(--text);
+}
+
+body {
+  position: relative;
+}
+
+#scene {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+.hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 20px;
+}
+
+.hud__top {
+  display: flex;
+  gap: 12px;
+}
+
+.hud__bottom {
+  display: flex;
+  justify-content: center;
+}
+
+.panel,
+.card {
+  backdrop-filter: blur(16px);
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  box-shadow:
+    0 20px 60px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.panel {
+  min-width: 112px;
+  padding: 12px 16px;
+  border-radius: 18px;
+}
+
+.label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+
+.panel strong {
+  font-size: clamp(1.2rem, 2vw, 1.8rem);
+}
+
+.card {
+  max-width: min(620px, 100%);
+  border-radius: 24px;
+  padding: 18px 20px;
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: clamp(1.1rem, 2vw, 1.4rem);
+  font-weight: 700;
+}
+
+#status {
+  margin: 0;
+  font-size: 0.98rem;
+  line-height: 1.45;
+}
+
+.hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  z-index: 2;
+  transition:
+    opacity 220ms ease,
+    visibility 220ms ease;
+}
+
+.overlay.is-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.overlay__backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(94, 200, 255, 0.18), transparent 28%),
+    radial-gradient(circle at 50% 80%, rgba(255, 122, 69, 0.14), transparent 26%),
+    rgba(3, 6, 10, 0.58);
+  backdrop-filter: blur(10px);
+}
+
+.overlay__card {
+  position: relative;
+  width: min(680px, 100%);
+  padding: clamp(24px, 4vw, 36px);
+  border-radius: 32px;
+  border: 1px solid rgba(176, 235, 255, 0.24);
+  background:
+    linear-gradient(180deg, rgba(15, 22, 35, 0.92), rgba(9, 13, 22, 0.82)),
+    rgba(8, 12, 20, 0.82);
+  box-shadow:
+    0 40px 120px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  color: var(--accent);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+}
+
+.overlay__title {
+  margin: 0;
+  max-width: 12ch;
+  font-size: clamp(2.2rem, 6vw, 4.8rem);
+  line-height: 0.96;
+}
+
+.overlay__text {
+  margin: 18px 0 0;
+  max-width: 44ch;
+  color: #dce7fb;
+  font-size: clamp(1rem, 2.2vw, 1.12rem);
+  line-height: 1.6;
+}
+
+.overlay__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.overlay__meta span {
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(176, 235, 255, 0.2);
+  background: rgba(19, 28, 43, 0.78);
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.overlay__button {
+  margin-top: 22px;
+  border: 0;
+  border-radius: 18px;
+  padding: 14px 22px;
+  background: linear-gradient(135deg, #8ef9ff, #ff9b5a);
+  color: #051018;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 20px 40px rgba(30, 176, 228, 0.25);
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.overlay__button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 24px 48px rgba(30, 176, 228, 0.34);
+}
+
+.overlay__button:active {
+  transform: translateY(0);
+}
+
+@media (max-width: 720px) {
+  .hud {
+    padding: 14px;
+  }
+
+  .hud__top {
+    gap: 8px;
+  }
+
+  .panel {
+    min-width: 0;
+    flex: 1;
+    padding: 10px 12px;
+    border-radius: 16px;
+  }
+
+  .card {
+    border-radius: 20px;
+    padding: 16px;
+  }
+
+  .overlay {
+    padding: 14px;
+  }
+
+  .overlay__card {
+    border-radius: 24px;
+    padding: 20px;
+  }
+
+  .overlay__title {
+    max-width: 10ch;
+    font-size: clamp(2rem, 10vw, 3.2rem);
+  }
+
+  .overlay__button {
+    width: 100%;
+  }
+
+  #status,
+  .hint {
+    font-size: 0.88rem;
+  }
+}
