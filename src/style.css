@@ -43,6 +43,204 @@ input {
   height: 100vh;
 }
 
+.screen-fx {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.screen-fx__damage,
+.screen-fx__fury {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.screen-fx__damage {
+  background:
+    radial-gradient(circle at center, transparent 40%, rgba(255, 64, 64, 0.14) 70%, rgba(255, 64, 64, 0.28) 100%);
+}
+
+.screen-fx__fury {
+  background:
+    radial-gradient(circle at center, transparent 36%, rgba(255, 155, 68, 0.08) 72%, rgba(255, 73, 39, 0.14) 100%);
+}
+
+.screen-fx__damage.is-active {
+  opacity: 1;
+}
+
+.screen-fx__fury.is-active {
+  opacity: 1;
+}
+
+.letterbox {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 38px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0));
+  opacity: 0.85;
+}
+
+.letterbox--top {
+  top: 0;
+}
+
+.letterbox--bottom {
+  bottom: 0;
+  transform: rotate(180deg);
+}
+
+.crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 36px;
+  height: 36px;
+  transform: translate(-50%, -50%);
+  opacity: 0.82;
+}
+
+.crosshair span {
+  position: absolute;
+  background: rgba(255, 242, 210, 0.92);
+  box-shadow: 0 0 8px rgba(255, 180, 120, 0.26);
+}
+
+.crosshair span:nth-child(1),
+.crosshair span:nth-child(2) {
+  width: 10px;
+  height: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.crosshair span:nth-child(1) {
+  left: 0;
+}
+
+.crosshair span:nth-child(2) {
+  right: 0;
+}
+
+.crosshair span:nth-child(3),
+.crosshair span:nth-child(4) {
+  width: 2px;
+  height: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.crosshair span:nth-child(3) {
+  top: 0;
+}
+
+.crosshair span:nth-child(4) {
+  bottom: 0;
+}
+
+.hit-text {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  min-width: 120px;
+  text-align: center;
+  color: #fff0cf;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.hit-text.is-active {
+  opacity: 1;
+  transform: translate(-50%, -64%);
+}
+
+.chapter-banner,
+.subtitle-strip {
+  position: fixed;
+  left: 50%;
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0;
+  transition:
+    opacity 240ms ease,
+    transform 240ms ease;
+}
+
+.chapter-banner {
+  top: 68px;
+  width: min(560px, calc(100vw - 32px));
+  padding: 18px 22px;
+  border-radius: 24px;
+  transform: translate(-50%, -12px);
+  text-align: center;
+  backdrop-filter: blur(18px);
+  background:
+    linear-gradient(135deg, rgba(10, 16, 25, 0.82), rgba(48, 17, 17, 0.72)),
+    rgba(10, 16, 25, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 26px 72px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.chapter-banner.is-active,
+.subtitle-strip.is-active {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.chapter-banner__eyebrow,
+.chapter-banner__title,
+.chapter-banner__text {
+  margin: 0;
+}
+
+.chapter-banner__eyebrow {
+  color: #ff8b72;
+  font-size: 0.76rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+}
+
+.chapter-banner__title {
+  margin-top: 7px;
+  font-size: clamp(1.5rem, 3vw, 2.2rem);
+  line-height: 1;
+}
+
+.chapter-banner__text {
+  margin-top: 8px;
+  color: #cfd7e2;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.subtitle-strip {
+  bottom: 62px;
+  width: min(680px, calc(100vw - 32px));
+  padding: 10px 16px;
+  border-radius: 999px;
+  transform: translate(-50%, 10px);
+  text-align: center;
+  font-size: 0.88rem;
+  color: #f8efe3;
+  letter-spacing: 0.06em;
+  background: rgba(5, 8, 12, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.28);
+}
+
 .hud {
   position: fixed;
   inset: 0;
@@ -460,5 +658,15 @@ input {
   .field input,
   .overlay__button {
     width: 100%;
+  }
+
+  .chapter-banner {
+    top: 92px;
+    padding: 16px 18px;
+  }
+
+  .subtitle-strip {
+    bottom: 92px;
+    font-size: 0.82rem;
   }
 }

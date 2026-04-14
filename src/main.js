@@ -28,6 +28,14 @@ const radioTitleElement = document.querySelector("#radio-title");
 const radioTextElement = document.querySelector("#radio-text");
 const episodeTitleElement = document.querySelector("#episode-title");
 const episodeBlurbElement = document.querySelector("#episode-blurb");
+const damageFlashElement = document.querySelector("#damage-flash");
+const furyOverlayElement = document.querySelector("#fury-overlay");
+const hitTextElement = document.querySelector("#hit-text");
+const chapterBannerElement = document.querySelector("#chapter-banner");
+const chapterEyebrowElement = document.querySelector("#chapter-eyebrow");
+const chapterTitleElement = document.querySelector("#chapter-title");
+const chapterTextElement = document.querySelector("#chapter-text");
+const subtitleStripElement = document.querySelector("#subtitle-strip");
 
 const healthElement = document.querySelector("#health");
 const ammoElement = document.querySelector("#ammo");
@@ -142,6 +150,13 @@ const gameState = {
   spawnInterval: 1.4,
   missionComplete: false,
   bossSpawnedThisWave: false,
+  damageFlashTimer: 0,
+  hitTextTimer: 0,
+  muzzleFlashTimer: 0,
+  shakeTimer: 0,
+  shakeStrength: 0,
+  chapterTimer: 0,
+  subtitleTimer: 0,
   leaderboard: loadLeaderboard(),
 };
 
@@ -206,6 +221,8 @@ blueAlarmLight.position.set(-10, 7, -12);
 scene.add(blueAlarmLight);
 
 const streetLightTargets = [];
+const searchlights = [];
+const fireLights = [];
 const cityRoot = new THREE.Group();
 const weatherGroup = new THREE.Group();
 scene.add(cityRoot);
@@ -217,6 +234,8 @@ scene.add(player.group);
 
 const zombies = [];
 const effects = [];
+const pickups = [];
+const enemyProjectiles = [];
 
 const clock = new THREE.Clock();
 let audioContext = null;
@@ -257,6 +276,8 @@ function updateGame(delta, elapsed) {
   updatePlayer(delta, elapsed);
   updateWave(delta);
   updateZombies(delta, elapsed);
+  updateEnemyProjectiles(delta, elapsed);
+  updatePickups(delta, elapsed);
   updateEffects(delta);
   updateWeather(delta);
   updateTimers(delta);
@@ -266,8 +287,11 @@ function updateGame(delta, elapsed) {
 
 function updateIdle(delta, elapsed) {
   updatePlayer(delta, elapsed);
+  updateEnemyProjectiles(delta * 0.3, elapsed);
+  updatePickups(delta * 0.35, elapsed);
   updateEffects(delta);
   updateWeather(delta * 0.35);
+  updateTimers(delta * 0.45);
   updateAtmosphere(delta, elapsed);
 }
 
@@ -293,9 +317,24 @@ function updatePlayer(delta, elapsed) {
     delta,
   );
   player.arms.rotation.x = -0.2 + Math.sin(elapsed * 13) * 0.02;
+  player.gun.rotation.x = THREE.MathUtils.damp(player.gun.rotation.x, 0, 12, delta);
 
-  camera.position.x = THREE.MathUtils.damp(camera.position.x, player.group.position.x * 0.28, 5, delta);
-  camera.lookAt(player.group.position.x * 0.1, 2.4, -18);
+  const shakeFalloff = gameState.shakeTimer > 0 ? gameState.shakeTimer / 0.24 : 0;
+  const shakeOffsetX = (Math.random() - 0.5) * gameState.shakeStrength * shakeFalloff;
+  const shakeOffsetY = (Math.random() - 0.5) * gameState.shakeStrength * 0.45 * shakeFalloff;
+
+  camera.position.x = THREE.MathUtils.damp(camera.position.x, player.group.position.x * 0.28, 5, delta) + shakeOffsetX;
+  camera.position.y = THREE.MathUtils.damp(
+    camera.position.y,
+    6.8 + (gameState.health < 35 ? Math.sin(elapsed * 10) * 0.08 : 0),
+    4,
+    delta,
+  ) + shakeOffsetY;
+  camera.position.z = THREE.MathUtils.damp(camera.position.z, 15.5 + (gameState.reloading ? 0.35 : 0), 4, delta);
+  camera.lookAt(player.group.position.x * 0.1, 2.4 + shakeOffsetY * 0.6, -18);
+
+  player.flashlightTarget.position.set(player.group.position.x * 0.12, 1.8, -32);
+  player.flashlightTarget.updateMatrixWorld();
 }
 
 function updateWave(delta) {
@@ -320,8 +359,19 @@ function updateWave(delta) {
 function updateZombies(delta, elapsed) {
   for (let index = zombies.length - 1; index >= 0; index -= 1) {
     const zombie = zombies[index];
+    const distanceToPlayer = player.group.position.z - zombie.group.position.z;
 
-    zombie.group.position.z += zombie.userData.speed * delta;
+    if (zombie.userData.type === "spitter" && distanceToPlayer > 10) {
+      zombie.group.position.z += zombie.userData.speed * 0.62 * delta;
+      zombie.userData.attackCooldown = Math.max(0, zombie.userData.attackCooldown - delta);
+      if (distanceToPlayer > 12 && distanceToPlayer < 34 && zombie.userData.attackCooldown === 0) {
+        spawnEnemyProjectile(zombie);
+        zombie.userData.attackCooldown = 1.8 + Math.random() * 0.5;
+      }
+    } else {
+      zombie.group.position.z += zombie.userData.speed * delta;
+    }
+
     zombie.group.position.x =
       zombie.userData.baseX +
       Math.sin(elapsed * zombie.userData.swaySpeed + zombie.userData.phase) * zombie.userData.swayAmplitude;
@@ -329,9 +379,15 @@ function updateZombies(delta, elapsed) {
     zombie.arms.rotation.x = Math.sin(elapsed * 10 + zombie.userData.phase) * 0.6;
     zombie.head.rotation.z = Math.sin(elapsed * 5 + zombie.userData.phase) * 0.08;
 
+    if (zombie.userData.type === "crawler") {
+      zombie.group.position.y = 0.02 + Math.sin(elapsed * 14 + zombie.userData.phase) * 0.03;
+      zombie.group.rotation.x = -0.28 + Math.sin(elapsed * 8 + zombie.userData.phase) * 0.04;
+    }
+
     if (
       Math.abs(zombie.group.position.z - player.group.position.z) < 1.9 &&
-      Math.abs(zombie.group.position.x - player.group.position.x) < 1.55
+      Math.abs(zombie.group.position.x - player.group.position.x) <
+        (zombie.userData.type === "crawler" ? 1.1 : 1.55)
     ) {
       damagePlayer(zombie.userData.damage);
       spawnImpact(zombie.group.position, "#ff6f61", 10);
@@ -344,6 +400,32 @@ function updateZombies(delta, elapsed) {
       zombies.splice(index, 1);
       scene.remove(zombie.group);
       continue;
+    }
+  }
+}
+
+function updateEnemyProjectiles(delta, elapsed) {
+  for (let index = enemyProjectiles.length - 1; index >= 0; index -= 1) {
+    const projectile = enemyProjectiles[index];
+    projectile.position.addScaledVector(projectile.userData.velocity, delta);
+    projectile.rotation.x += delta * 4;
+    projectile.rotation.y += delta * 6;
+    projectile.material.opacity = 0.48 + Math.sin(elapsed * 14 + projectile.userData.phase) * 0.1;
+
+    if (
+      Math.abs(projectile.position.z - player.group.position.z) < 1.4 &&
+      Math.abs(projectile.position.x - player.group.position.x) < 1.1
+    ) {
+      damagePlayer(projectile.userData.damage);
+      spawnImpact(projectile.position, "#98ff8a", 8);
+      enemyProjectiles.splice(index, 1);
+      scene.remove(projectile);
+      continue;
+    }
+
+    if (projectile.position.z > 18 || projectile.position.y < -0.5) {
+      enemyProjectiles.splice(index, 1);
+      scene.remove(projectile);
     }
   }
 }
@@ -367,6 +449,28 @@ function updateEffects(delta) {
     if (effect.userData.life <= 0) {
       effects.splice(index, 1);
       scene.remove(effect);
+    }
+  }
+}
+
+function updatePickups(delta, elapsed) {
+  for (let index = pickups.length - 1; index >= 0; index -= 1) {
+    const pickup = pickups[index];
+    pickup.group.position.z += 6.6 * delta;
+    pickup.group.rotation.y += delta * 2.2;
+    pickup.group.position.y = 0.6 + Math.sin(elapsed * 4 + pickup.userData.phase) * 0.16;
+
+    if (
+      Math.abs(pickup.group.position.z - player.group.position.z) < 1.4 &&
+      Math.abs(pickup.group.position.x - player.group.position.x) < 1.2
+    ) {
+      collectPickup(pickup);
+      continue;
+    }
+
+    if (pickup.group.position.z > 18) {
+      scene.remove(pickup.group);
+      pickups.splice(index, 1);
     }
   }
 }
@@ -401,6 +505,51 @@ function updateTimers(delta) {
   } else if (gameState.furyCharge >= 1) {
     activateFury();
   }
+
+  if (gameState.damageFlashTimer > 0) {
+    gameState.damageFlashTimer = Math.max(0, gameState.damageFlashTimer - delta);
+    damageFlashElement.classList.toggle("is-active", gameState.damageFlashTimer > 0);
+  } else {
+    damageFlashElement.classList.remove("is-active");
+  }
+
+  if (gameState.hitTextTimer > 0) {
+    gameState.hitTextTimer = Math.max(0, gameState.hitTextTimer - delta);
+    hitTextElement.classList.toggle("is-active", gameState.hitTextTimer > 0);
+  } else {
+    hitTextElement.classList.remove("is-active");
+  }
+
+  if (gameState.muzzleFlashTimer > 0) {
+    gameState.muzzleFlashTimer = Math.max(0, gameState.muzzleFlashTimer - delta);
+    player.muzzleLight.visible = true;
+    player.muzzleLight.intensity = THREE.MathUtils.lerp(
+      0,
+      gameState.furyActive ? 18 : 12,
+      gameState.muzzleFlashTimer / 0.08,
+    );
+  } else {
+    player.muzzleLight.visible = false;
+    player.muzzleLight.intensity = 0;
+  }
+
+  if (gameState.shakeTimer > 0) {
+    gameState.shakeTimer = Math.max(0, gameState.shakeTimer - delta);
+  }
+
+  if (gameState.chapterTimer > 0) {
+    gameState.chapterTimer = Math.max(0, gameState.chapterTimer - delta);
+    chapterBannerElement.classList.toggle("is-active", gameState.chapterTimer > 0);
+  } else {
+    chapterBannerElement.classList.remove("is-active");
+  }
+
+  if (gameState.subtitleTimer > 0) {
+    gameState.subtitleTimer = Math.max(0, gameState.subtitleTimer - delta);
+    subtitleStripElement.classList.toggle("is-active", gameState.subtitleTimer > 0);
+  } else {
+    subtitleStripElement.classList.remove("is-active");
+  }
 }
 
 function updateAtmosphere(delta, elapsed) {
@@ -419,12 +568,39 @@ function updateAtmosphere(delta, elapsed) {
   streetLightTargets.forEach((light, index) => {
     light.intensity = 7 + Math.sin(elapsed * 2 + index) * 0.8;
   });
+
+  searchlights.forEach((entry, index) => {
+    entry.pivot.rotation.y = Math.sin(elapsed * 0.42 + index * 1.7) * 0.85;
+    entry.pivot.rotation.x = -0.38 + Math.sin(elapsed * 0.33 + index) * 0.06;
+    entry.beam.material.opacity = 0.07 + Math.sin(elapsed * 1.6 + index) * 0.015;
+  });
+
+  fireLights.forEach((light, index) => {
+    light.intensity = 10 + Math.sin(elapsed * 7 + index * 1.8) * 2.8;
+  });
+
+  player.flashlight.intensity = THREE.MathUtils.damp(
+    player.flashlight.intensity,
+    gameState.running ? (gameState.furyActive ? 10 : 8.5) : 6,
+    4,
+    delta,
+  );
+  renderer.toneMappingExposure = THREE.MathUtils.damp(
+    renderer.toneMappingExposure,
+    gameState.furyActive ? 1.08 : gameState.health < 35 ? 0.94 : 1.02,
+    2.5,
+    delta,
+  );
+
+  furyOverlayElement.classList.toggle("is-active", gameState.furyActive);
 }
 
 function buildCity() {
   cityRoot.clear();
   weatherGroup.clear();
   streetLightTargets.length = 0;
+  searchlights.length = 0;
+  fireLights.length = 0;
 
   const episode = getCurrentEpisode();
   scene.background = new THREE.Color(episode.environment.background);
@@ -440,6 +616,22 @@ function buildCity() {
   road.position.set(0, -0.2, -40);
   road.receiveShadow = true;
   cityRoot.add(road);
+
+  const wetRoad = new THREE.Mesh(
+    new THREE.PlaneGeometry(13.2, 180),
+    new THREE.MeshPhysicalMaterial({
+      color: episode.environment.road,
+      roughness: 0.14,
+      metalness: 0.26,
+      clearcoat: 1,
+      clearcoatRoughness: 0.1,
+      transparent: true,
+      opacity: 0.3,
+    }),
+  );
+  wetRoad.rotation.x = -Math.PI * 0.5;
+  wetRoad.position.set(0, -0.035, -40);
+  cityRoot.add(wetRoad);
 
   const sidewalkMaterial = new THREE.MeshStandardMaterial({
     color: episode.environment.sidewalk,
@@ -469,6 +661,24 @@ function buildCity() {
     cityRoot.add(line);
   }
 
+  for (let i = 0; i < 9; i += 1) {
+    const puddle = new THREE.Mesh(
+      new THREE.CircleGeometry(1 + Math.random() * 1.3, 18),
+      new THREE.MeshPhysicalMaterial({
+        color: "#111923",
+        roughness: 0.08,
+        metalness: 0.35,
+        clearcoat: 1,
+        transparent: true,
+        opacity: 0.24,
+      }),
+    );
+    puddle.rotation.x = -Math.PI * 0.5;
+    puddle.scale.set(1.5 + Math.random() * 1.6, 0.45 + Math.random() * 0.3, 1);
+    puddle.position.set((Math.random() - 0.5) * 8, -0.03, 14 - i * 18);
+    cityRoot.add(puddle);
+  }
+
   const buildingPalette = episode.environment.buildingPalette;
   for (let side of [-1, 1]) {
     for (let i = 0; i < 18; i += 1) {
@@ -489,6 +699,11 @@ function buildCity() {
       cityRoot.add(building);
 
       addWindowLights(building);
+      if (i % 4 === 0) {
+        const sign = buildRooftopSign(i % 8 === 0 ? episode.environment.red : episode.environment.blue);
+        sign.position.set(0, height * 0.52, 0);
+        building.add(sign);
+      }
     }
   }
 
@@ -510,6 +725,38 @@ function buildCity() {
     car.rotation.y = i % 2 === 0 ? 0.18 : -0.22;
     cityRoot.add(car);
   }
+
+  for (let i = 0; i < 5; i += 1) {
+    const barricade = buildBarricadeCluster(episode);
+    barricade.position.set(i % 2 === 0 ? -10.2 : 10.2, 0, 6 - i * 26);
+    barricade.rotation.y = i % 2 === 0 ? Math.PI * 0.18 : -Math.PI * 0.12;
+    cityRoot.add(barricade);
+  }
+
+  for (let i = 0; i < 6; i += 1) {
+    const debris = buildDebrisPile();
+    debris.position.set((i % 2 === 0 ? -1 : 1) * (6 + Math.random() * 4), 0, 8 - i * 24);
+    debris.rotation.y = Math.random() * Math.PI;
+    cityRoot.add(debris);
+  }
+
+  for (let i = 0; i < 4; i += 1) {
+    const barrel = buildFireBarrel();
+    barrel.group.position.set(i % 2 === 0 ? -9.6 : 9.8, 0, -4 - i * 28);
+    cityRoot.add(barrel.group);
+    fireLights.push(barrel.light);
+  }
+
+  for (let i = 0; i < 2; i += 1) {
+    const searchlight = buildSearchlight(i === 0 ? episode.environment.blue : episode.environment.red);
+    searchlight.group.position.set(i === 0 ? -16 : 16, 0, -42 - i * 18);
+    cityRoot.add(searchlight.group);
+    searchlights.push(searchlight);
+  }
+
+  addEpisodeSetDressing(episode.id);
+  cityRoot.add(buildMoon(episode));
+  cityRoot.add(buildSkyline(episode));
 
   const fogPlane = new THREE.Mesh(
     new THREE.PlaneGeometry(100, 80),
@@ -641,6 +888,268 @@ function buildWreckedCar(color) {
   return group;
 }
 
+function buildRooftopSign(color) {
+  const sign = new THREE.Group();
+
+  const frame = new THREE.Mesh(
+    new THREE.BoxGeometry(2.8, 0.9, 0.18),
+    new THREE.MeshStandardMaterial({
+      color: "#141b24",
+      roughness: 0.7,
+      metalness: 0.25,
+    }),
+  );
+  sign.add(frame);
+
+  const panel = new THREE.Mesh(
+    new THREE.BoxGeometry(2.45, 0.62, 0.08),
+    new THREE.MeshStandardMaterial({
+      color: "#f4f6f8",
+      emissive: color,
+      emissiveIntensity: 1.1,
+      roughness: 0.24,
+    }),
+  );
+  panel.position.z = 0.12;
+  sign.add(panel);
+
+  return sign;
+}
+
+function buildBarricadeCluster(episode) {
+  const group = new THREE.Group();
+  const palette = [episode.environment.red, episode.environment.blue, "#6f7881"];
+
+  for (let index = 0; index < 3; index += 1) {
+    const block = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, 1 + Math.random() * 0.6, 1.2),
+      new THREE.MeshStandardMaterial({
+        color: palette[index % palette.length],
+        roughness: 0.88,
+      }),
+    );
+    block.position.set((index - 1) * 1.4, 0.55, Math.random() * 0.4 - 0.2);
+    block.rotation.y = (Math.random() - 0.5) * 0.4;
+    block.castShadow = true;
+    block.receiveShadow = true;
+    group.add(block);
+  }
+
+  const tape = new THREE.Mesh(
+    new THREE.BoxGeometry(4.6, 0.08, 0.08),
+    new THREE.MeshStandardMaterial({
+      color: "#f7c948",
+      emissive: "#c89418",
+      emissiveIntensity: 0.3,
+      roughness: 0.5,
+    }),
+  );
+  tape.position.set(0, 1.4, 0);
+  group.add(tape);
+
+  return group;
+}
+
+function buildDebrisPile() {
+  const group = new THREE.Group();
+
+  for (let index = 0; index < 5; index += 1) {
+    const chunk = new THREE.Mesh(
+      new THREE.BoxGeometry(0.3 + Math.random() * 0.9, 0.16 + Math.random() * 0.4, 0.3 + Math.random() * 0.9),
+      new THREE.MeshStandardMaterial({
+        color: ["#2b3037", "#4d3527", "#3e4349"][index % 3],
+        roughness: 0.94,
+      }),
+    );
+    chunk.position.set((Math.random() - 0.5) * 1.8, chunk.geometry.parameters.height * 0.5, (Math.random() - 0.5) * 1.8);
+    chunk.rotation.set(Math.random(), Math.random() * Math.PI, Math.random() * 0.4);
+    chunk.castShadow = true;
+    chunk.receiveShadow = true;
+    group.add(chunk);
+  }
+
+  return group;
+}
+
+function buildFireBarrel() {
+  const group = new THREE.Group();
+
+  const barrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.42, 0.5, 1.1, 14),
+    new THREE.MeshStandardMaterial({
+      color: "#3b424c",
+      roughness: 0.82,
+      metalness: 0.24,
+    }),
+  );
+  barrel.position.y = 0.55;
+  barrel.castShadow = true;
+  barrel.receiveShadow = true;
+  group.add(barrel);
+
+  const ember = new THREE.Mesh(
+    new THREE.SphereGeometry(0.26, 12, 12),
+    new THREE.MeshBasicMaterial({
+      color: "#ffb15c",
+      transparent: true,
+      opacity: 0.9,
+    }),
+  );
+  ember.position.y = 1.08;
+  ember.scale.y = 0.7;
+  group.add(ember);
+
+  const light = new THREE.PointLight("#ff8f4a", 10, 14, 2);
+  light.position.set(0, 1.1, 0);
+  group.add(light);
+
+  return { group, light };
+}
+
+function buildSearchlight(color) {
+  const group = new THREE.Group();
+  const pivot = new THREE.Group();
+
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.7, 0.85, 0.5, 16),
+    new THREE.MeshStandardMaterial({
+      color: "#2f3741",
+      roughness: 0.76,
+      metalness: 0.18,
+    }),
+  );
+  base.position.y = 0.25;
+  group.add(base);
+
+  const head = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.34, 0.44, 1.2, 16),
+    new THREE.MeshStandardMaterial({
+      color: "#74818f",
+      roughness: 0.52,
+      metalness: 0.35,
+    }),
+  );
+  head.rotation.z = Math.PI * 0.5;
+  head.position.set(0, 2.2, 0);
+  pivot.add(head);
+
+  const beam = new THREE.Mesh(
+    new THREE.ConeGeometry(3.4, 20, 18, 1, true),
+    new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.07,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }),
+  );
+  beam.position.set(0, 1.8, -9.4);
+  beam.rotation.x = Math.PI;
+  beam.scale.x = 0.5;
+  pivot.add(beam);
+
+  const light = new THREE.SpotLight(color, 8, 90, Math.PI / 7, 0.38, 1);
+  light.position.set(0, 2.2, 0);
+  const target = new THREE.Object3D();
+  target.position.set(0, 1.4, -26);
+  pivot.add(target);
+  light.target = target;
+  pivot.add(light);
+  group.add(pivot);
+
+  return { group, pivot, beam, light };
+}
+
+function addEpisodeSetDressing(episodeId) {
+  if (episodeId === 1) {
+    for (let index = 0; index < 3; index += 1) {
+      const ambulance = buildWreckedCar(index === 1 ? "#c3d8eb" : "#8c2528");
+      ambulance.position.set(index % 2 === 0 ? -11.8 : 11.6, 0.15, -18 - index * 26);
+      ambulance.rotation.y = index % 2 === 0 ? 0.28 : -0.34;
+      cityRoot.add(ambulance);
+    }
+    return;
+  }
+
+  if (episodeId === 2) {
+    for (let index = 0; index < 4; index += 1) {
+      const overhang = new THREE.Mesh(
+        new THREE.BoxGeometry(5.6, 0.22, 1.8),
+        new THREE.MeshStandardMaterial({
+          color: "#1e242e",
+          roughness: 0.8,
+        }),
+      );
+      overhang.position.set(index % 2 === 0 ? -14.6 : 14.6, 4.4 + index * 0.15, 4 - index * 20);
+      overhang.rotation.y = index % 2 === 0 ? 0.1 : -0.1;
+      cityRoot.add(overhang);
+    }
+    return;
+  }
+
+  for (let index = 0; index < 5; index += 1) {
+    const container = new THREE.Mesh(
+      new THREE.BoxGeometry(3.2, 2.5, 7.4),
+      new THREE.MeshStandardMaterial({
+        color: ["#33566e", "#7a3b2f", "#465d63"][index % 3],
+        roughness: 0.92,
+        metalness: 0.12,
+      }),
+    );
+    container.position.set(index % 2 === 0 ? -14.8 : 14.8, 1.25, -8 - index * 18);
+    container.rotation.y = index % 2 === 0 ? 0.04 : -0.05;
+    container.castShadow = true;
+    container.receiveShadow = true;
+    cityRoot.add(container);
+  }
+}
+
+function buildMoon(episode) {
+  const moon = new THREE.Group();
+
+  const disc = new THREE.Mesh(
+    new THREE.SphereGeometry(3.2, 24, 24),
+    new THREE.MeshBasicMaterial({
+      color: episode.id === 3 ? "#f4efe6" : "#d7e8ff",
+    }),
+  );
+  disc.position.set(24, 28, -82);
+  moon.add(disc);
+
+  const halo = new THREE.Mesh(
+    new THREE.PlaneGeometry(16, 16),
+    new THREE.MeshBasicMaterial({
+      color: episode.id === 3 ? "#e8f0f6" : "#c7dcff",
+      transparent: true,
+      opacity: 0.12,
+      depthWrite: false,
+    }),
+  );
+  halo.position.copy(disc.position);
+  moon.add(halo);
+
+  return moon;
+}
+
+function buildSkyline(episode) {
+  const skyline = new THREE.Group();
+  const colors = episode.environment.buildingPalette;
+
+  for (let index = 0; index < 14; index += 1) {
+    const tower = new THREE.Mesh(
+      new THREE.BoxGeometry(4 + Math.random() * 7, 12 + Math.random() * 26, 3 + Math.random() * 4),
+      new THREE.MeshStandardMaterial({
+        color: colors[index % colors.length],
+        roughness: 0.92,
+      }),
+    );
+    tower.position.set(-34 + index * 5.4, tower.geometry.parameters.height * 0.5 + 4, -102 - Math.random() * 12);
+    skyline.add(tower);
+  }
+
+  return skyline;
+}
+
 function buildPlayer() {
   const group = new THREE.Group();
   group.position.set(0, 0, 8);
@@ -666,6 +1175,17 @@ function buildPlayer() {
   torso.position.y = 1.8;
   torso.castShadow = true;
   group.add(torso);
+
+  const vest = new THREE.Mesh(
+    new THREE.BoxGeometry(1.02, 1.05, 0.72),
+    new THREE.MeshStandardMaterial({
+      color: "#1f262f",
+      roughness: 0.82,
+    }),
+  );
+  vest.position.set(0, 1.88, 0.12);
+  vest.castShadow = true;
+  group.add(vest);
 
   const backpack = new THREE.Mesh(
     new THREE.BoxGeometry(0.72, 0.92, 0.36),
@@ -716,11 +1236,38 @@ function buildPlayer() {
   gun.position.set(0.2, -0.14, 0.86);
   arms.add(gun);
 
+  const flashlightCasing = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.08, 0.08, 0.42, 10),
+    new THREE.MeshStandardMaterial({
+      color: "#aab5c1",
+      metalness: 0.55,
+      roughness: 0.35,
+    }),
+  );
+  flashlightCasing.rotation.x = Math.PI * 0.5;
+  flashlightCasing.position.set(0.02, -0.22, 0.76);
+  gun.add(flashlightCasing);
+
   const muzzle = new THREE.Object3D();
   muzzle.position.set(0.2, -0.1, 1.5);
   arms.add(muzzle);
 
-  return { group, arms, gun, muzzle };
+  const muzzleLight = new THREE.PointLight("#ffd089", 0, 10, 2);
+  muzzleLight.position.set(0.2, -0.1, 1.5);
+  muzzleLight.visible = false;
+  arms.add(muzzleLight);
+
+  const flashlight = new THREE.SpotLight("#d7ecff", 8, 58, Math.PI / 8, 0.45, 1);
+  flashlight.position.set(0.12, -0.06, 1.18);
+  flashlight.castShadow = false;
+  gun.add(flashlight);
+
+  const flashlightTarget = new THREE.Object3D();
+  flashlightTarget.position.set(0, 1.8, -32);
+  scene.add(flashlightTarget);
+  flashlight.target = flashlightTarget;
+
+  return { group, arms, gun, muzzle, muzzleLight, flashlight, flashlightTarget };
 }
 
 function spawnZombie() {
@@ -750,8 +1297,14 @@ function spawnZombie() {
 
 function pickZombieType() {
   const roll = Math.random();
+  if (gameState.wave >= 3 && roll > 0.9) {
+    return "spitter";
+  }
   if (gameState.wave >= 4 && roll > 0.82) {
     return "brute";
+  }
+  if (gameState.wave >= 2 && roll > 0.66) {
+    return "crawler";
   }
   if (gameState.wave >= 2 && roll > 0.56) {
     return "runner";
@@ -765,25 +1318,33 @@ function buildZombie(type) {
   const palette = {
     walker: { skin: "#7ea17d", shirt: "#58614a", pants: "#332f32", speed: 5.2, damage: 12, health: 1, score: 110 },
     runner: { skin: "#98b18d", shirt: "#5e3636", pants: "#262a2f", speed: 7.3, damage: 16, health: 1, score: 160 },
+    crawler: { skin: "#86a57f", shirt: "#4f5946", pants: "#2e2a2c", speed: 5.8, damage: 14, health: 1, score: 150 },
+    spitter: { skin: "#7ca46a", shirt: "#3a4e3d", pants: "#262b2f", speed: 4.3, damage: 18, health: 2, score: 220 },
     brute: { skin: "#89a078", shirt: "#4d4d59", pants: "#2a2327", speed: 4.1, damage: 24, health: 3, score: 260 },
     alpha: { skin: "#9cb17d", shirt: "#2f2a31", pants: "#201c20", speed: 3.8, damage: 34, health: 8, score: 640 },
   }[type];
 
-  const bodyScale = type === "alpha" ? 1.65 : type === "brute" ? 1.25 : type === "runner" ? 0.92 : 1;
+  const bodyScale =
+    type === "alpha" ? 1.65 : type === "brute" ? 1.25 : type === "runner" ? 0.92 : type === "crawler" ? 0.78 : 1;
+  const isCrawler = type === "crawler";
+  const torsoHeight = isCrawler ? 0.9 : 1.5 * bodyScale;
+  const torsoY = isCrawler ? 1.12 : 1.85 * bodyScale;
+  const headY = isCrawler ? 1.58 : 2.95 * bodyScale;
+  const armsY = isCrawler ? 1.28 : 2.1 * bodyScale;
 
   const legs = new THREE.Mesh(
-    new THREE.BoxGeometry(1 * bodyScale, 1.2 * bodyScale, 0.7 * bodyScale),
+    new THREE.BoxGeometry(1 * bodyScale, isCrawler ? 0.6 : 1.2 * bodyScale, 0.7 * bodyScale),
     new THREE.MeshStandardMaterial({ color: palette.pants, roughness: 0.88 }),
   );
-  legs.position.y = 0.6 * bodyScale;
+  legs.position.y = isCrawler ? 0.32 : 0.6 * bodyScale;
   legs.castShadow = true;
   group.add(legs);
 
   const torso = new THREE.Mesh(
-    new THREE.BoxGeometry(1.2 * bodyScale, 1.5 * bodyScale, 0.8 * bodyScale),
+    new THREE.BoxGeometry(1.2 * bodyScale, torsoHeight, 0.8 * bodyScale),
     new THREE.MeshStandardMaterial({ color: palette.shirt, roughness: 0.82 }),
   );
-  torso.position.y = 1.85 * bodyScale;
+  torso.position.y = torsoY;
   torso.castShadow = true;
   group.add(torso);
 
@@ -791,26 +1352,42 @@ function buildZombie(type) {
     new THREE.SphereGeometry(0.38 * bodyScale, 14, 14),
     new THREE.MeshStandardMaterial({ color: palette.skin, roughness: 0.7 }),
   );
-  head.position.y = 2.95 * bodyScale;
+  head.position.y = headY;
   head.castShadow = true;
   group.add(head);
 
+  if (type === "spitter" || type === "alpha") {
+    for (const x of [-0.14, 0.14]) {
+      const eye = new THREE.Mesh(
+        new THREE.SphereGeometry(0.06 * bodyScale, 10, 10),
+        new THREE.MeshStandardMaterial({
+          color: type === "alpha" ? "#ff6f61" : "#9dff7a",
+          emissive: type === "alpha" ? "#ff3b2f" : "#7ff54c",
+          emissiveIntensity: 1.4,
+        }),
+      );
+      eye.position.set(x, headY + 0.02, 0.3 * bodyScale);
+      group.add(eye);
+    }
+  }
+
   const arms = new THREE.Group();
-  arms.position.set(0, 2.1 * bodyScale, 0.3);
+  arms.position.set(0, armsY, isCrawler ? 0.65 : 0.3);
   group.add(arms);
 
   for (const x of [-0.75, 0.75]) {
     const arm = new THREE.Mesh(
-      new THREE.BoxGeometry(0.28 * bodyScale, 1.25 * bodyScale, 0.28 * bodyScale),
+      new THREE.BoxGeometry(0.28 * bodyScale, (isCrawler ? 1.1 : 1.25) * bodyScale, 0.28 * bodyScale),
       new THREE.MeshStandardMaterial({ color: palette.skin, roughness: 0.74 }),
     );
     arm.position.set(x * bodyScale, 0, 0);
     arm.rotation.z = x < 0 ? 0.45 : -0.45;
-    arm.rotation.x = 0.5;
+    arm.rotation.x = isCrawler ? 1.18 : 0.5;
     arms.add(arm);
   }
 
-  group.position.y = 0.04;
+  group.position.y = isCrawler ? 0.02 : 0.04;
+  group.rotation.x = isCrawler ? -0.26 : 0;
 
   return {
     group,
@@ -823,6 +1400,7 @@ function buildZombie(type) {
       health: palette.health,
       score: palette.score,
       hitFlash: 0,
+      attackCooldown: type === "spitter" ? 0.9 + Math.random() * 0.8 : 0,
     },
   };
 }
@@ -844,6 +1422,8 @@ function fireShot() {
   gameState.ammo -= 1;
   gameState.shootCooldown = gameState.furyActive ? 0.11 : 0.2;
   player.gun.rotation.x = -0.2;
+  gameState.shakeTimer = 0.12;
+  gameState.shakeStrength = gameState.furyActive ? 0.28 : 0.18;
 
   const origin = new THREE.Vector3();
   player.muzzle.getWorldPosition(origin);
@@ -856,9 +1436,11 @@ function fireShot() {
   const hitCount = gameState.furyActive ? Math.min(2, targets.length) : Math.min(1, targets.length);
   const endZ = targets[0] ? targets[0].group.position.z : -64;
   spawnTracer(origin, endZ);
+  flashMuzzle();
 
   for (let i = 0; i < hitCount; i += 1) {
-    hitZombie(targets[i], gameState.furyActive ? 2 : 1);
+    const isHeadshot = targets[i] && targets[i].group.position.z > -24;
+    hitZombie(targets[i], gameState.furyActive ? 2 : 1, isHeadshot);
   }
 
   playSound("shoot");
@@ -867,10 +1449,40 @@ function fireShot() {
   }
 }
 
-function hitZombie(zombie, damage) {
+function spawnEnemyProjectile(zombie) {
+  const projectile = new THREE.Mesh(
+    new THREE.SphereGeometry(0.22, 14, 14),
+    new THREE.MeshBasicMaterial({
+      color: "#9dff7a",
+      transparent: true,
+      opacity: 0.52,
+    }),
+  );
+  projectile.position.copy(zombie.group.position);
+  projectile.position.y += zombie.userData.type === "crawler" ? 1 : 1.9;
+
+  const target = new THREE.Vector3(player.group.position.x, 1.4, player.group.position.z);
+  const velocity = target.sub(projectile.position).normalize().multiplyScalar(12);
+  projectile.userData = {
+    velocity,
+    damage: zombie.userData.damage,
+    phase: Math.random() * Math.PI * 2,
+  };
+  enemyProjectiles.push(projectile);
+  scene.add(projectile);
+  playSound("acid");
+}
+
+function hitZombie(zombie, damage, headshot = false) {
   zombie.userData.health -= damage;
   spawnImpact(zombie.group.position, "#9dff7a", 7);
   playSound("hit");
+
+  if (headshot) {
+    zombie.userData.health -= 1;
+    gameState.score += 45;
+    showHitText("HEADSHOT");
+  }
 
   if (zombie.userData.health <= 0) {
     killZombie(zombie);
@@ -900,6 +1512,9 @@ function killZombie(zombie) {
     missionStatusElement.textContent = "Bolum gorevi tamamlandi.";
     playSound("mission");
   }
+
+  maybeSpawnPickup(zombie.group.position);
+  showHitText(zombie.userData.type === "alpha" ? "BOSS DOWN" : zombie.userData.type === "spitter" ? "PURGE" : "KILL");
 }
 
 function reloadWeapon() {
@@ -925,6 +1540,10 @@ function completeReload() {
 function damagePlayer(amount) {
   gameState.health = Math.max(0, gameState.health - amount);
   playSound("hurt");
+  gameState.damageFlashTimer = 0.18;
+  gameState.shakeTimer = 0.2;
+  gameState.shakeStrength = 0.36;
+  damageFlashElement.classList.add("is-active");
 
   if (gameState.health <= 0) {
     endGame();
@@ -980,6 +1599,12 @@ function advanceWave() {
   gameState.score += 300 + gameState.wave * 80;
   gameState.bossSpawnedThisWave = false;
   pushStatus(`Dalga ${gameState.wave}. ${getCurrentEpisode().city} daha da karardi.`);
+  showChapterBanner(
+    `Wave ${String(gameState.wave).padStart(2, "0")}`,
+    getCurrentEpisode().city,
+    getWaveRadioLine(),
+    2.6,
+  );
   radioTitleElement.textContent = "Saha Telsizi";
   radioTextElement.textContent = getWaveRadioLine();
   playSound("wave");
@@ -1008,6 +1633,12 @@ function advanceEpisode() {
   buildCity();
   updateEpisodeUi();
   pushStatus(`${getCurrentEpisode().city} bolumune gecildi.`);
+  showChapterBanner(
+    `Episode ${getCurrentEpisode().code}`,
+    getCurrentEpisode().city,
+    getCurrentEpisode().blurb,
+    3.2,
+  );
   radioTitleElement.textContent = getCurrentEpisode().radioTitle;
   radioTextElement.textContent = getCurrentEpisode().radioText;
   playSound("wave");
@@ -1044,6 +1675,11 @@ function startOrRestartGame() {
   gameState.spawnInterval = 1.2;
   gameState.missionComplete = false;
   gameState.bossSpawnedThisWave = false;
+  gameState.damageFlashTimer = 0;
+  gameState.hitTextTimer = 0;
+  gameState.muzzleFlashTimer = 0;
+  gameState.chapterTimer = 0;
+  gameState.subtitleTimer = 0;
 
   player.group.position.x = 0;
   player.group.rotation.z = 0;
@@ -1056,6 +1692,12 @@ function startOrRestartGame() {
   radioTitleElement.textContent = getCurrentEpisode().radioTitle;
   radioTextElement.textContent = getCurrentEpisode().radioText;
   pushStatus(`${getCurrentEpisode().city} karanligina girdin. Ilk dalga geliyor.`);
+  showChapterBanner(
+    `Episode ${getCurrentEpisode().code}`,
+    getCurrentEpisode().city,
+    getCurrentEpisode().blurb,
+    3.2,
+  );
   syncHud();
   playSound("start");
 }
@@ -1079,6 +1721,15 @@ function clearEntities() {
 
   while (effects.length > 0) {
     scene.remove(effects.pop());
+  }
+
+  while (pickups.length > 0) {
+    const pickup = pickups.pop();
+    scene.remove(pickup.group);
+  }
+
+  while (enemyProjectiles.length > 0) {
+    scene.remove(enemyProjectiles.pop());
   }
 }
 
@@ -1156,6 +1807,27 @@ function syncHud() {
   cityElement.textContent = getCurrentEpisode().city;
 }
 
+function flashMuzzle() {
+  gameState.muzzleFlashTimer = 0.08;
+  player.muzzleLight.visible = true;
+  player.muzzleLight.intensity = gameState.furyActive ? 18 : 12;
+
+  const flash = new THREE.Mesh(
+    new THREE.SphereGeometry(0.12, 10, 10),
+    new THREE.MeshBasicMaterial({
+      color: gameState.furyActive ? "#ffb15c" : "#ffd089",
+      transparent: true,
+      opacity: 0.9,
+    }),
+  );
+  const worldPosition = new THREE.Vector3();
+  player.muzzle.getWorldPosition(worldPosition);
+  flash.position.copy(worldPosition);
+  flash.userData = { type: "particle", life: 0.08, velocity: new THREE.Vector3(0, 0, 0) };
+  effects.push(flash);
+  scene.add(flash);
+}
+
 function spawnTracer(origin, hitZ) {
   const tracer = new THREE.Mesh(
     new THREE.CylinderGeometry(0.04, 0.04, Math.abs(hitZ - origin.z), 8),
@@ -1196,6 +1868,114 @@ function spawnImpact(position, color, count) {
     effects.push(particle);
     scene.add(particle);
   }
+}
+
+function maybeSpawnPickup(position) {
+  const roll = Math.random();
+  if (roll > 0.34) {
+    return;
+  }
+
+  const type = roll < 0.12 ? "ammo" : roll < 0.24 ? "medkit" : "adrenaline";
+  const group = buildPickup(type);
+  group.position.set(position.x, 0.6, position.z);
+  scene.add(group);
+  pickups.push({
+    group,
+    userData: {
+      type,
+      phase: Math.random() * Math.PI * 2,
+    },
+  });
+}
+
+function buildPickup(type) {
+  const group = new THREE.Group();
+
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(0.9, 0.32, 0.9),
+    new THREE.MeshStandardMaterial({
+      color: type === "ammo" ? "#38495b" : type === "medkit" ? "#4b2d2d" : "#43324d",
+      roughness: 0.84,
+    }),
+  );
+  group.add(base);
+
+  const icon = new THREE.Mesh(
+    new THREE.BoxGeometry(0.46, 0.18, 0.18),
+    new THREE.MeshStandardMaterial({
+      color: type === "ammo" ? "#52d2ff" : type === "medkit" ? "#ff6f61" : "#bb7cff",
+      emissive: type === "ammo" ? "#2da9d8" : type === "medkit" ? "#d63d36" : "#8f47ff",
+      emissiveIntensity: 1,
+      roughness: 0.4,
+    }),
+  );
+  icon.position.y = 0.28;
+  group.add(icon);
+
+  if (type === "medkit") {
+    const crossBar = new THREE.Mesh(
+      new THREE.BoxGeometry(0.18, 0.46, 0.18),
+      icon.material.clone(),
+    );
+    crossBar.position.y = 0.28;
+    group.add(crossBar);
+  }
+
+  if (type === "adrenaline") {
+    const vial = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.08, 0.08, 0.42, 10),
+      new THREE.MeshStandardMaterial({
+        color: "#efe6ff",
+        emissive: "#c38eff",
+        emissiveIntensity: 0.8,
+        roughness: 0.18,
+      }),
+    );
+    vial.position.set(0, 0.28, 0);
+    group.add(vial);
+  }
+
+  return group;
+}
+
+function collectPickup(pickup) {
+  if (pickup.userData.type === "ammo") {
+    gameState.reserveAmmo += 10;
+    pushStatus("Mermi kutusu toplandi.");
+    showHitText("AMMO");
+  } else if (pickup.userData.type === "medkit") {
+    gameState.health = Math.min(100, gameState.health + 22);
+    pushStatus("Saglik kiti bulundu.");
+    showHitText("HEAL");
+  } else {
+    gameState.furyCharge = Math.min(1, gameState.furyCharge + 0.42);
+    pushStatus("Adrenalin enjekte edildi.");
+    showHitText("FURY");
+  }
+
+  playSound("pickup");
+  spawnImpact(
+    pickup.group.position,
+    pickup.userData.type === "ammo" ? "#52d2ff" : pickup.userData.type === "medkit" ? "#ff6f61" : "#bb7cff",
+    8,
+  );
+  scene.remove(pickup.group);
+  pickups.splice(pickups.indexOf(pickup), 1);
+}
+
+function showHitText(text) {
+  hitTextElement.textContent = text;
+  gameState.hitTextTimer = 0.32;
+  hitTextElement.classList.add("is-active");
+}
+
+function showChapterBanner(eyebrow, title, text, duration = 2.8) {
+  chapterEyebrowElement.textContent = eyebrow;
+  chapterTitleElement.textContent = title;
+  chapterTextElement.textContent = text;
+  gameState.chapterTimer = duration;
+  chapterBannerElement.classList.add("is-active");
 }
 
 function onKeyDown(event) {
@@ -1302,6 +2082,9 @@ function escapeHtml(value) {
 
 function pushStatus(message) {
   statusElement.textContent = message;
+  subtitleStripElement.textContent = message;
+  gameState.subtitleTimer = 2.4;
+  subtitleStripElement.classList.add("is-active");
 }
 
 function ensureAudioContext() {
@@ -1337,6 +2120,14 @@ function playSound(type) {
     ],
     empty: [{ time: 0, frequency: 480, duration: 0.04, gain: 0.02, type: "sine" }],
     hit: [{ time: 0, frequency: 620, duration: 0.04, gain: 0.02, type: "triangle" }],
+    pickup: [
+      { time: 0, frequency: 540, duration: 0.05, gain: 0.03, type: "triangle" },
+      { time: 0.05, frequency: 720, duration: 0.08, gain: 0.025, type: "triangle" },
+    ],
+    acid: [
+      { time: 0, frequency: 260, duration: 0.08, gain: 0.03, type: "sawtooth" },
+      { time: 0.04, frequency: 180, duration: 0.1, gain: 0.025, type: "triangle" },
+    ],
     hurt: [
       { time: 0, frequency: 150, duration: 0.08, gain: 0.06, type: "sawtooth" },
       { time: 0.03, frequency: 95, duration: 0.1, gain: 0.05, type: "triangle" },
