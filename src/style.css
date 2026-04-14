@@ -78,7 +78,9 @@ input {
 .panel,
 .card,
 .mission-card,
+.radio-card,
 .leaderboard,
+.story-card,
 .overlay__card {
   backdrop-filter: blur(16px);
   background: var(--panel);
@@ -264,6 +266,46 @@ input {
 .mission-card__sub {
   color: #bdccd9;
   font-size: 0.92rem;
+}
+
+.radio-card,
+.story-card {
+  margin-top: 16px;
+  border-radius: 22px;
+  padding: 16px 18px;
+  background: linear-gradient(135deg, rgba(82, 210, 255, 0.1), rgba(255, 111, 97, 0.08));
+}
+
+.radio-card__label,
+.radio-card__title,
+.radio-card__text,
+.story-card__label,
+.story-card__title,
+.story-card__text {
+  margin: 0;
+}
+
+.radio-card__label,
+.story-card__label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.radio-card__title,
+.story-card__title {
+  margin-top: 6px;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.radio-card__text,
+.story-card__text {
+  margin-top: 6px;
+  color: #c9d2dc;
+  font-size: 0.92rem;
+  line-height: 1.55;
 }
 
 .field {

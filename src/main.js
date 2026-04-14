@@ -23,6 +23,11 @@ const leaderboardListElement = document.querySelector("#leaderboard-list");
 const hudBottomElement = document.querySelector("#hud-bottom");
 const statusElement = document.querySelector("#status");
 const missionStatusElement = document.querySelector("#mission-status");
+const missionElement = document.querySelector("#mission");
+const radioTitleElement = document.querySelector("#radio-title");
+const radioTextElement = document.querySelector("#radio-text");
+const episodeTitleElement = document.querySelector("#episode-title");
+const episodeBlurbElement = document.querySelector("#episode-blurb");
 
 const healthElement = document.querySelector("#health");
 const ammoElement = document.querySelector("#ammo");
@@ -30,11 +35,82 @@ const scoreElement = document.querySelector("#score");
 const killsElement = document.querySelector("#kills");
 const waveElement = document.querySelector("#wave");
 const furyElement = document.querySelector("#fury");
+const episodeElement = document.querySelector("#episode");
+const cityElement = document.querySelector("#city");
 
 const moveLeftButton = document.querySelector("#move-left");
 const moveRightButton = document.querySelector("#move-right");
 const fireButton = document.querySelector("#fire-button");
 const reloadButton = document.querySelector("#reload-button");
+
+const EPISODES = [
+  {
+    id: 1,
+    code: "01",
+    title: "Cokus Gecesi",
+    city: "Atlanta",
+    blurb:
+      "Merkez mahalleler dustu. Polis bandi koptu. Simdi tek hedef, apartman aralarindan gecip gecici guvenli bolgeye ulasmak.",
+    mission: "3 dalga boyunca mahalleyi savun ve ilk alfa zombiyi indir.",
+    radioTitle: "Kanal 6 Acik",
+    radioText:
+      "Merkez istasyon cevap vermiyor. Guney caddesindeki tahliye koridoru daraldi. Hayatta kalanlar sokak lambalarina gore yoneliyor.",
+    environment: {
+      background: "#060a11",
+      fog: "#060a11",
+      bloom: 0.32,
+      road: "#222830",
+      sidewalk: "#43474f",
+      buildingPalette: ["#10161d", "#161d28", "#1a2230", "#131923"],
+      red: "#ff5035",
+      blue: "#4aa8ff",
+    },
+  },
+  {
+    id: 2,
+    code: "02",
+    title: "Sessiz Merkez",
+    city: "Chicago",
+    blurb:
+      "Sehir cekirdegi tamamen karardi. Cam cepheli binalar bos, sokaklar yankili. Tahliye konvoyu kuzey koprusunde son kez beklenecek.",
+    mission: "Downtown caddesinde 25 zombi temizle ve kopru cikisini tut.",
+    radioTitle: "Saha Telsizi",
+    radioText:
+      "Yuksek bloklar arasinda yankı yapan sirenler suruyu cekiyor. Kopru acik ama uzun degil. Hareket eden her sey hedef olabilir.",
+    environment: {
+      background: "#050810",
+      fog: "#050810",
+      bloom: 0.38,
+      road: "#1f232b",
+      sidewalk: "#3d424b",
+      buildingPalette: ["#0d1219", "#151b23", "#1b212b", "#111720"],
+      red: "#f04a33",
+      blue: "#58b8ff",
+    },
+  },
+  {
+    id: 3,
+    code: "03",
+    title: "Karanlik Liman",
+    city: "Istanbul",
+    blurb:
+      "Liman sis altinda. Konteyner hatlari kopmus, kacis tekneleri dagildi. Son durak deniz kiyisi ama suru artik seni taniyor.",
+    mission: "Liman yolunda hayatta kal, boss dalgasini gec ve tahliye isigina ulas.",
+    radioTitle: "Acil Yayin",
+    radioText:
+      "Sahil bolgesinde goz temasi kurmayan yok. Sis yogunlasiyor. Son ekip, fener iskelesinde toplaniyor. Oraya kadar yasarsan sansin var.",
+    environment: {
+      background: "#04070d",
+      fog: "#04070d",
+      bloom: 0.44,
+      road: "#1b2028",
+      sidewalk: "#353b44",
+      buildingPalette: ["#0b1016", "#121821", "#18202a", "#0f141c"],
+      red: "#ff6248",
+      blue: "#68c8ff",
+    },
+  },
+];
 
 const gameState = {
   running: false,
@@ -47,6 +123,7 @@ const gameState = {
   score: 0,
   kills: 0,
   wave: 1,
+  episodeIndex: 0,
   bestScore: Number(localStorage.getItem(STORAGE_KEYS.bestScore) || 0),
   furyCharge: 0,
   furyActive: false,
@@ -64,6 +141,7 @@ const gameState = {
   spawnTimer: 0,
   spawnInterval: 1.4,
   missionComplete: false,
+  bossSpawnedThisWave: false,
   leaderboard: loadLeaderboard(),
 };
 
@@ -128,6 +206,10 @@ blueAlarmLight.position.set(-10, 7, -12);
 scene.add(blueAlarmLight);
 
 const streetLightTargets = [];
+const cityRoot = new THREE.Group();
+const weatherGroup = new THREE.Group();
+scene.add(cityRoot);
+scene.add(weatherGroup);
 buildCity();
 
 const player = buildPlayer();
@@ -151,6 +233,7 @@ reloadButton.addEventListener("click", reloadWeapon);
 
 registerServiceWorker();
 renderLeaderboard();
+updateEpisodeUi();
 setOverlay("intro");
 syncHud();
 animate();
@@ -175,6 +258,7 @@ function updateGame(delta, elapsed) {
   updateWave(delta);
   updateZombies(delta, elapsed);
   updateEffects(delta);
+  updateWeather(delta);
   updateTimers(delta);
   updateAtmosphere(delta, elapsed);
   syncHud();
@@ -183,6 +267,7 @@ function updateGame(delta, elapsed) {
 function updateIdle(delta, elapsed) {
   updatePlayer(delta, elapsed);
   updateEffects(delta);
+  updateWeather(delta * 0.35);
   updateAtmosphere(delta, elapsed);
 }
 
@@ -224,7 +309,11 @@ function updateWave(delta) {
   }
 
   if (gameState.waveKills >= gameState.waveSpawnTotal && zombies.length === 0) {
-    advanceWave();
+    if (gameState.wave >= 3) {
+      advanceEpisode();
+    } else {
+      advanceWave();
+    }
   }
 }
 
@@ -315,11 +404,14 @@ function updateTimers(delta) {
 }
 
 function updateAtmosphere(delta, elapsed) {
+  const episode = getCurrentEpisode();
+  redAlarmLight.color.set(episode.environment.red);
+  blueAlarmLight.color.set(episode.environment.blue);
   redAlarmLight.intensity = 14 + Math.sin(elapsed * 5.5) * 4 + (gameState.furyActive ? 5 : 0);
   blueAlarmLight.intensity = 8 + Math.sin(elapsed * 4.5 + 1.7) * 3;
   bloomPass.strength = THREE.MathUtils.damp(
     bloomPass.strength,
-    gameState.furyActive ? 0.62 : 0.32,
+    gameState.furyActive ? episode.environment.bloom + 0.24 : episode.environment.bloom,
     4,
     delta,
   );
@@ -330,30 +422,38 @@ function updateAtmosphere(delta, elapsed) {
 }
 
 function buildCity() {
+  cityRoot.clear();
+  weatherGroup.clear();
+  streetLightTargets.length = 0;
+
+  const episode = getCurrentEpisode();
+  scene.background = new THREE.Color(episode.environment.background);
+  scene.fog = new THREE.Fog(episode.environment.fog, 24, 120);
+
   const road = new THREE.Mesh(
     new THREE.BoxGeometry(20, 0.3, 180),
     new THREE.MeshStandardMaterial({
-      color: "#222830",
+      color: episode.environment.road,
       roughness: 0.96,
     }),
   );
   road.position.set(0, -0.2, -40);
   road.receiveShadow = true;
-  scene.add(road);
+  cityRoot.add(road);
 
   const sidewalkMaterial = new THREE.MeshStandardMaterial({
-    color: "#43474f",
+    color: episode.environment.sidewalk,
     roughness: 0.95,
   });
 
   const leftSidewalk = new THREE.Mesh(new THREE.BoxGeometry(6, 0.35, 180), sidewalkMaterial);
   leftSidewalk.position.set(-13.5, -0.05, -40);
   leftSidewalk.receiveShadow = true;
-  scene.add(leftSidewalk);
+  cityRoot.add(leftSidewalk);
 
   const rightSidewalk = leftSidewalk.clone();
   rightSidewalk.position.x = 13.5;
-  scene.add(rightSidewalk);
+  cityRoot.add(rightSidewalk);
 
   for (let i = 0; i < 16; i += 1) {
     const line = new THREE.Mesh(
@@ -366,10 +466,10 @@ function buildCity() {
       }),
     );
     line.position.set(0, 0.03, 20 - i * 10);
-    scene.add(line);
+    cityRoot.add(line);
   }
 
-  const buildingPalette = ["#10161d", "#161d28", "#1a2230", "#131923"];
+  const buildingPalette = episode.environment.buildingPalette;
   for (let side of [-1, 1]) {
     for (let i = 0; i < 18; i += 1) {
       const width = 6 + Math.random() * 5;
@@ -386,7 +486,7 @@ function buildCity() {
       building.position.set(side * (18 + Math.random() * 8), height * 0.5 - 0.2, 18 - i * 10);
       building.castShadow = true;
       building.receiveShadow = true;
-      scene.add(building);
+      cityRoot.add(building);
 
       addWindowLights(building);
     }
@@ -395,12 +495,12 @@ function buildCity() {
   for (let i = 0; i < 8; i += 1) {
     const lamp = buildStreetLamp();
     lamp.group.position.set(-8.8, 0, 18 - i * 20);
-    scene.add(lamp.group);
+    cityRoot.add(lamp.group);
     streetLightTargets.push(lamp.light);
 
     const lamp2 = buildStreetLamp();
     lamp2.group.position.set(8.8, 0, 8 - i * 20);
-    scene.add(lamp2.group);
+    cityRoot.add(lamp2.group);
     streetLightTargets.push(lamp2.light);
   }
 
@@ -408,7 +508,7 @@ function buildCity() {
     const car = buildWreckedCar(i % 2 === 0 ? "#5e1616" : "#2d3c51");
     car.position.set(i % 2 === 0 ? -6.2 : 6.2, 0.15, -8 - i * 20);
     car.rotation.y = i % 2 === 0 ? 0.18 : -0.22;
-    scene.add(car);
+    cityRoot.add(car);
   }
 
   const fogPlane = new THREE.Mesh(
@@ -421,7 +521,9 @@ function buildCity() {
     }),
   );
   fogPlane.position.set(0, 8, -48);
-  scene.add(fogPlane);
+  cityRoot.add(fogPlane);
+
+  buildWeather(episode.id);
 }
 
 function addWindowLights(building) {
@@ -623,17 +725,27 @@ function buildPlayer() {
 
 function spawnZombie() {
   const laneIndex = Math.floor(Math.random() * laneCount);
-  const type = pickZombieType();
+  const type =
+    gameState.wave === 3 && !gameState.bossSpawnedThisWave && gameState.waveSpawned >= gameState.waveSpawnTotal - 1
+      ? "alpha"
+      : pickZombieType();
   const zombie = buildZombie(type);
 
   zombie.group.position.set(lanePositions[laneIndex], 0, -58 - Math.random() * 28);
   zombie.userData.baseX = lanePositions[laneIndex];
   zombie.userData.phase = Math.random() * Math.PI * 2;
   zombie.userData.swaySpeed = 1.8 + Math.random() * 1.4;
-  zombie.userData.swayAmplitude = type === "runner" ? 0.18 : 0.08;
+  zombie.userData.swayAmplitude = type === "runner" ? 0.18 : type === "alpha" ? 0.04 : 0.08;
   zombie.userData.laneIndex = laneIndex;
   scene.add(zombie.group);
   zombies.push(zombie);
+
+  if (type === "alpha") {
+    gameState.bossSpawnedThisWave = true;
+    radioTitleElement.textContent = "Acil Yayin";
+    radioTextElement.textContent = "Buyuk hedef goruldu. Hattı bozma, mermiyi sakla.";
+    pushStatus("Alfa zombi hatta girdi.");
+  }
 }
 
 function pickZombieType() {
@@ -654,9 +766,10 @@ function buildZombie(type) {
     walker: { skin: "#7ea17d", shirt: "#58614a", pants: "#332f32", speed: 5.2, damage: 12, health: 1, score: 110 },
     runner: { skin: "#98b18d", shirt: "#5e3636", pants: "#262a2f", speed: 7.3, damage: 16, health: 1, score: 160 },
     brute: { skin: "#89a078", shirt: "#4d4d59", pants: "#2a2327", speed: 4.1, damage: 24, health: 3, score: 260 },
+    alpha: { skin: "#9cb17d", shirt: "#2f2a31", pants: "#201c20", speed: 3.8, damage: 34, health: 8, score: 640 },
   }[type];
 
-  const bodyScale = type === "brute" ? 1.25 : type === "runner" ? 0.92 : 1;
+  const bodyScale = type === "alpha" ? 1.65 : type === "brute" ? 1.25 : type === "runner" ? 0.92 : 1;
 
   const legs = new THREE.Mesh(
     new THREE.BoxGeometry(1 * bodyScale, 1.2 * bodyScale, 0.7 * bodyScale),
@@ -775,12 +888,16 @@ function killZombie(zombie) {
 
   gameState.kills += 1;
   gameState.waveKills += 1;
-  gameState.furyCharge = Math.min(1, gameState.furyCharge + (zombie.userData.type === "brute" ? 0.28 : 0.14));
+  gameState.furyCharge = Math.min(
+    1,
+    gameState.furyCharge +
+      (zombie.userData.type === "alpha" ? 0.45 : zombie.userData.type === "brute" ? 0.28 : 0.14),
+  );
   gameState.score += Math.round(zombie.userData.score * (gameState.furyActive ? 1.5 : 1));
 
   if (!gameState.missionComplete && gameState.kills >= 20 && gameState.wave >= 3) {
     gameState.missionComplete = true;
-    missionStatusElement.textContent = "Gorev tamamlandi. Sokak sende.";
+    missionStatusElement.textContent = "Bolum gorevi tamamlandi.";
     playSound("mission");
   }
 }
@@ -861,7 +978,38 @@ function advanceWave() {
   gameState.reserveAmmo += 10 + gameState.wave * 2;
   gameState.health = Math.min(100, gameState.health + 10);
   gameState.score += 300 + gameState.wave * 80;
-  pushStatus(`Dalga ${gameState.wave}. Sokak daha da kizisiyor.`);
+  gameState.bossSpawnedThisWave = false;
+  pushStatus(`Dalga ${gameState.wave}. ${getCurrentEpisode().city} daha da karardi.`);
+  radioTitleElement.textContent = "Saha Telsizi";
+  radioTextElement.textContent = getWaveRadioLine();
+  playSound("wave");
+}
+
+function advanceEpisode() {
+  if (gameState.episodeIndex >= EPISODES.length - 1) {
+    pushStatus("Son tahliye hattini da gectin. Sezon finali.");
+    gameState.score += 1200;
+    endGame();
+    return;
+  }
+
+  gameState.episodeIndex += 1;
+  gameState.wave = 1;
+  gameState.waveSpawnTotal = 9 + gameState.episodeIndex * 2;
+  gameState.waveSpawned = 0;
+  gameState.waveKills = 0;
+  gameState.spawnTimer = 1.6;
+  gameState.spawnInterval = Math.max(0.52, 1.18 - gameState.episodeIndex * 0.08);
+  gameState.reserveAmmo += 18;
+  gameState.health = Math.min(100, gameState.health + 16);
+  gameState.missionComplete = false;
+  gameState.bossSpawnedThisWave = false;
+  clearEntities();
+  buildCity();
+  updateEpisodeUi();
+  pushStatus(`${getCurrentEpisode().city} bolumune gecildi.`);
+  radioTitleElement.textContent = getCurrentEpisode().radioTitle;
+  radioTextElement.textContent = getCurrentEpisode().radioText;
   playSound("wave");
 }
 
@@ -878,6 +1026,7 @@ function startOrRestartGame() {
   gameState.score = 0;
   gameState.kills = 0;
   gameState.wave = 1;
+  gameState.episodeIndex = 0;
   gameState.furyCharge = 0;
   gameState.furyActive = false;
   gameState.furyTimer = 0;
@@ -894,14 +1043,19 @@ function startOrRestartGame() {
   gameState.spawnTimer = 1;
   gameState.spawnInterval = 1.2;
   gameState.missionComplete = false;
+  gameState.bossSpawnedThisWave = false;
 
   player.group.position.x = 0;
   player.group.rotation.z = 0;
 
+  buildCity();
+  updateEpisodeUi();
   missionStatusElement.textContent = "Gorev aktif.";
   overlayElement.classList.add("is-hidden");
   hudBottomElement.classList.add("is-hidden");
-  pushStatus("Gece başladı. İlk dalga geliyor.");
+  radioTitleElement.textContent = getCurrentEpisode().radioTitle;
+  radioTextElement.textContent = getCurrentEpisode().radioText;
+  pushStatus(`${getCurrentEpisode().city} karanligina girdin. Ilk dalga geliyor.`);
   syncHud();
   playSound("start");
 }
@@ -980,13 +1134,13 @@ function setOverlay(mode) {
 
   if (mode === "intro") {
     overlayTextElement.textContent =
-      "Hayatta kalan son avcilardan birisin. Sokagi temizle, dalgalari as ve kayit tablosuna adini yaz.";
+      `${getCurrentEpisode().city} seferi basliyor. ${getCurrentEpisode().blurb}`;
     overlayButtonElement.textContent = gameState.started ? "Yeni Avi Baslat" : "Avi Baslat";
   }
 
   if (mode === "gameover") {
     overlayTextElement.textContent =
-      `Av bitti. ${gameState.kills} zombi indirdin, ${gameState.wave}. dalgaya ulastin ve ${formatNumber(gameState.score)} puan topladin.`;
+      `Av bitti. ${gameState.kills} zombi indirdin, ${getCurrentEpisode().city} bolumunde ${gameState.wave}. dalgaya ulastin ve ${formatNumber(gameState.score)} puan topladin.`;
     overlayButtonElement.textContent = "Tekrar Dene";
   }
 }
@@ -998,6 +1152,8 @@ function syncHud() {
   killsElement.textContent = formatNumber(gameState.kills);
   waveElement.textContent = String(gameState.wave);
   furyElement.textContent = gameState.furyActive ? "AKTIF" : `${Math.round(gameState.furyCharge * 100)}%`;
+  episodeElement.textContent = `${getCurrentEpisode().code}`;
+  cityElement.textContent = getCurrentEpisode().city;
 }
 
 function spawnTracer(origin, hitZ) {
@@ -1232,5 +1388,69 @@ function registerServiceWorker() {
     window.addEventListener("load", () => {
       navigator.serviceWorker.register("/sw.js").catch(() => {});
     });
+  }
+}
+
+function updateEpisodeUi() {
+  const episode = getCurrentEpisode();
+  missionElement.textContent = episode.mission;
+  missionStatusElement.textContent = gameState.missionComplete ? "Bolum gorevi tamamlandi." : "Gorev aktif.";
+  radioTitleElement.textContent = episode.radioTitle;
+  radioTextElement.textContent = episode.radioText;
+  episodeTitleElement.textContent = `${episode.code}. ${episode.title}`;
+  episodeBlurbElement.textContent = episode.blurb;
+}
+
+function getCurrentEpisode() {
+  return EPISODES[gameState.episodeIndex];
+}
+
+function getWaveRadioLine() {
+  const episode = getCurrentEpisode();
+  const lines = [
+    `${episode.city} kuzey aksinda hareket var. Daha hizli geliyorlar.`,
+    `Telsiz kirik ama sesler net: sokak baskisi artiyor.`,
+    `Suru dagilmiyor. Her yeni dalga daha da koordineli.`,
+  ];
+  return lines[(gameState.wave - 1) % lines.length];
+}
+
+function buildWeather(episodeId) {
+  weatherGroup.clear();
+  const color = episodeId === 1 ? "#6c7a8a" : episodeId === 2 ? "#8ca1b6" : "#d8e0ea";
+  const speed = episodeId === 1 ? 9 : episodeId === 2 ? 12 : 6;
+  const count = episodeId === 3 ? 70 : 52;
+
+  for (let i = 0; i < count; i += 1) {
+    const particle = new THREE.Mesh(
+      new THREE.BoxGeometry(0.04, episodeId === 3 ? 0.04 : 0.3, 0.04),
+      new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity: episodeId === 3 ? 0.28 : 0.22,
+      }),
+    );
+    particle.position.set(
+      (Math.random() - 0.5) * 40,
+      4 + Math.random() * 14,
+      -80 + Math.random() * 120,
+    );
+    particle.userData.speed = speed + Math.random() * 4;
+    particle.userData.drift = (Math.random() - 0.5) * 0.6;
+    weatherGroup.add(particle);
+  }
+}
+
+function updateWeather(delta) {
+  for (const particle of weatherGroup.children) {
+    particle.position.z += particle.userData.speed * delta;
+    particle.position.x += particle.userData.drift * delta;
+    particle.position.y -= delta * 0.2;
+
+    if (particle.position.z > 28 || particle.position.y < -1) {
+      particle.position.z = -96 - Math.random() * 24;
+      particle.position.x = (Math.random() - 0.5) * 40;
+      particle.position.y = 6 + Math.random() * 14;
+    }
   }
 }
